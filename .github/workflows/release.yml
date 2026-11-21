@@ -132,7 +132,10 @@ jobs:
             --out "$apk" unsigned/app-release-unsigned.apk
           rm -f "$apk.idsig"
 
-          signer="$("$build_tools/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          # Every signer certificate apksigner reports must be the release key. The wording of the
+          # line prefix differs between build-tools versions, so only the digest is matched.
+          "$build_tools/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          signer="$(sed -n 's/^Signer.* certificate SHA-256 digest: //p' "$RUNNER_TEMP/certs.txt" | sort -u)"
           if [[ "$signer" != "$SIGNING_CERT_SHA256" ]]; then
             echo "::error::APK is signed by '$signer', expected the release key."
             exit 1
