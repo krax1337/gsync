@@ -1,15 +1,16 @@
 <div align="center">
 
-# ⌚ G-Sync
+<img src="docs/icon.svg" width="96" alt="">
 
-**Your G-Shock, on the exact second.** A small, private Android companion for the Casio G-Shock GW-BX5600: network-accurate time, alarms, timer and every watch setting. No account.
+# G-Sync
+
+**Your G-Shock, on the exact second.** A small, private Android companion for Casio G-Shock watches: network-accurate time, alarms, timer and the watch's settings. No account.
 
 [![CI](https://github.com/krax1337/gsync/actions/workflows/ci.yml/badge.svg)](https://github.com/krax1337/gsync/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/krax1337/gsync)](https://github.com/krax1337/gsync/releases/latest)
 [![Android](https://img.shields.io/badge/Android-13%2B-3DDC84?logo=android&logoColor=white)](#-install)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-<img src="docs/watch.png" width="250" alt="Watch tab with the live reference clock"> <img src="docs/alarms-dark.png" width="250" alt="Alarms and timer, dark theme"> <img src="docs/settings.png" width="250" alt="Settings tab">
+<img src="docs/screens.png" width="760" alt="The Watch tab with the live reference clock, the Alarms tab in the dark theme, and the watch guide">
 
 </div>
 
@@ -18,21 +19,34 @@
 - 🎯 **Accurate.** Time comes from network time servers, not from whatever the phone thinks, and is written so that it lands on the watch as a second begins.
 - 🔄 **Syncs by itself.** The app answers the watch's four daily connections in the background. You do not have to open it.
 - 👀 **Checkable.** The first screen is a live clock showing what the watch should read. Hold the watch next to it.
-- 🧰 **Complete, not bloated.** Time, alarms, timer, all watch settings and the phone finder. No calendar, no voice assistant, no button actions.
+- 🧰 **Complete, not bloated.** Time, alarms, timer, watch settings and the phone finder, for one watch or several. No calendar, no voice assistant, no button actions.
 - 🔒 **Private.** No account, no analytics, no backend. The only thing it sends over the network is a time request.
 
 Unofficial project, not affiliated with Casio. G-SHOCK and CASIO are trademarks of Casio Computer Co., Ltd.
 
+## ⌚ Supported watches
+
+| Status | Models | What it means |
+| --- | --- | --- |
+| **Confirmed** | GW-BX5600 | Time sync checked on a real watch. Alarms, timer, settings, background sync and the phone finder have unit tests but still wait for their first check on hardware |
+| **Experimental** | GW-B5600, GW-B5000, GMW-B5000, GMW-BZ5000, MRG-B5000, GCW-B5000, DW-B5600 | Written from what is known about the protocol. Nobody has tried G-Sync on these yet |
+| **Experimental** | GA-B2100, GM-B2100, GBM-2100, GA-B001, GA-B010, G-B001, GPR-B1000 | Same |
+| **Experimental** | GST-B200, GST-B300, GST-B400, GST-B500, GST-B600, ECB-900, ECB-950 | Same |
+| **Experimental** | GBD-100, GBD-200, GBD-300, GBD-H1000, GBX-100, GBD-800, GMD-B800, GBA-800, GBA-900, GBA-950, ABL-100WE, F-B100W, BSA-B100 | Same, and the timer is left alone |
+| **Not supported** | Everything else, among them watches that stay connected all day (DW-H5600, ECB-30), watches with hands only (MTG, EQB) and the first Bluetooth generation (GB-6900B) | The app shows them when pairing but does not connect |
+
+The app shows only what a model has, and marks an experimental watch as such. On an experimental model the home city and time zone stay the way they are set on the watch.
+
 > [!WARNING]
-> **Early release.** Time sync is confirmed on a real GW-BX5600. Alarms, timer, settings, background sync and the phone finder have unit tests but have not yet been checked on hardware. If something is off on yours, please [open an issue](https://github.com/krax1337/gsync/issues).
+> **Experimental means untested.** If you own one of these models and try G-Sync, please [open an issue](https://github.com/krax1337/gsync/issues) with what worked and what did not, and attach the text from Settings → Diagnostics. A model moves to "Confirmed" once an owner has checked it.
 
 ## 📲 Install
 
-Requirements: Android 13 or newer, a GW-BX5600.
+Requirements: Android 13 or newer and a watch from the table above.
 
 1. **Download** `gsync-<version>.apk` from the [latest release](https://github.com/krax1337/gsync/releases/latest) and open it on the phone. Android asks once to allow installs from your browser or file manager.
 2. **Allow** Bluetooth and notifications when the app asks.
-3. **Pair:** hold the lower-left button on the watch for about 3 seconds until CONNECT appears, then tap the watch in the app.
+3. **Pair:** start a connection on the watch (on most models, hold the lower-left button for about 3 seconds until CONNECT appears), then tap the watch in the app.
 4. **Battery:** in the app's Settings tab, tap "Battery optimisation" and choose "Unrestricted". Without it Android may delay background sync.
 
 From then on the watch syncs four times a day. To sync right now, press the lower-right button on the watch.
@@ -67,20 +81,23 @@ The certificate SHA-256 digest must be:
 
 ## 🧰 What it controls
 
+What follows is the GW-BX5600. Other models have a subset.
+
 | Area | What you can set |
 | --- | --- |
 | **Time** | Synced from network time on every connection; fine adjustment in milliseconds |
 | **Automatic sync** | On or off, and the minute past the hour at which the watch connects |
-| **Alarms** | Five alarms, hourly time signal |
+| **Alarms** | Four alarms and the snooze alarm, hourly time signal |
 | **Timer** | Countdown start value, with presets from 1 minute to 1 hour or any custom value |
 | **Display** | 12/24-hour time, day.month or month.day, weekday language, Standard or Classic digits |
-| **Light** | Auto light, 1.5 s or 3 s illumination |
+| **Light** | Auto light, short or long illumination |
 | **Sound and power** | Button tone, power saving |
 | **Phone finder** | Hold the lower-right button on the watch for five seconds and the phone rings, even on silent |
 
-The Settings tab also has a **watch guide**: what each button does, how to set the home city and world time on the watch, which built-in city matches your phone's time zone, and what to do when you travel.
-
-You can change alarms, timer and settings at any time. If the watch is not connected, the change is stored and written at its next connection: the next automatic sync at the latest, or right away when you press a button on the watch.
+- **Several watches.** Tap the watch name at the top of the first tab to switch between paired watches or to add one. Each has its own alarms, timer, settings and sync history.
+- **Cities.** The first tab shows the home city and world time cities stored on the watch, and says whether the home city fits the phone's time zone.
+- **Watch guide** (GW-BX5600). What each button does, how to set the home city and world time, which built-in city matches your phone's time zone, and what to do when you travel.
+- **Offline edits.** Change alarms, timer and settings at any time. If the watch is not connected, the change is stored and written at its next connection.
 
 ## 🔄 How a sync runs
 
@@ -91,7 +108,7 @@ sequenceDiagram
     participant W as Watch
     participant S as G-Sync (background)
     participant N as Time servers
-    S->>S: listen for the watch (filtered BLE scan)
+    S->>S: listen for the paired watches (filtered BLE scan)
     W-->>S: advertises
     par
         S->>W: connect, ask why it connected
@@ -99,7 +116,7 @@ sequenceDiagram
         S->>N: ask 3 servers, keep the fastest answer
     end
     S->>W: write stored alarm / timer / settings edits
-    S->>W: read and write back the three clock blocks
+    S->>W: read and write back the clock tables
     S->>S: wait for the next whole second
     S->>W: write the time
     S->>W: read battery, alarms, timer, settings
@@ -114,12 +131,12 @@ sequenceDiagram
 
 ## 🔒 Privacy and permissions
 
-G-Sync has no account and no server. It stores the watch's Bluetooth address and the last values read from the watch, on the phone only and excluded from backups.
+G-Sync has no account and no server. It stores the Bluetooth address of each watch and the last values read from it, on the phone only and excluded from backups.
 
 | Permission | Why |
 | --- | --- |
 | Nearby devices (Bluetooth scan and connect) | Find the watch, listen for it, talk to it. Declared as never used for location |
-| Notifications | The status notification that keeps background sync alive |
+| Notifications | The status notification that keeps background sync alive, and the phone finder |
 | Internet | Time requests to `time.cloudflare.com`, `time.google.com` and `pool.ntp.org` |
 | Foreground service, run at startup | Keep listening for the watch, also after a reboot |
 | Wake lock | Keep the phone awake for the second or so an exchange takes |
@@ -127,12 +144,11 @@ G-Sync has no account and no server. It stores the watch's Bluetooth address and
 
 While a watch is paired, Android shows a permanent "G-Sync" notification. That is what stops Android from freezing the app between syncs; you can hide the notification category in system settings.
 
-## ⚠️ Status and limitations
+## ⚠️ Limitations
 
-- Only time sync is confirmed on hardware so far (see the warning above).
-- One watch model: GW-BX5600. Other G-Shocks speak different protocols and are not supported.
-- World-time cities are written back to the watch unchanged, and there is no home city picker. The home time follows the phone's time zone.
-- The battery level uses the scale known for this model, which owners have reported as imprecise.
+- There is no city picker: the home city and the world time cities are set on the watch itself.
+- How the GW-BX5600 stores its city names is inferred, not documented. If they cannot be read, the app simply does not show them.
+- The battery level uses the scale known for each model, which owners have reported as imprecise.
 - Phones with aggressive battery managers (Xiaomi, Huawei, Samsung "sleeping apps") may need G-Sync excluded there too.
 
 <details>
@@ -161,11 +177,11 @@ adb shell am start -n io.github.krax1337.gsync/.ui.DemoActivity --es screen sett
 <details>
 <summary><b>🗺 How the code is laid out</b></summary>
 
-About 4,700 lines of Kotlin and Jetpack Compose, no Bluetooth library.
+Kotlin and Jetpack Compose, no Bluetooth library.
 
 | Part | Role |
 | --- | --- |
-| `protocol/` | Encoders and decoders for the Casio frames and clock blocks. Pure Kotlin, unit tested |
+| `protocol/` | Encoders and decoders for the Casio frames, clock blocks and clock registers, and the model table (`Profiles.kt`). Pure Kotlin, unit tested |
 | `watch/WatchSession` | The operations: sync time, read and write alarms, timer, settings |
 | `ble/GattLink` | The Bluetooth transport, directly on Android's GATT API |
 | `watch/WatchManager` | Scan, connect, exchange, stored state. One per process |
@@ -173,23 +189,12 @@ About 4,700 lines of Kotlin and Jetpack Compose, no Bluetooth library.
 | `time/` | SNTP client and the network-backed clock |
 | `ui/` | Compose screens. Stateless: `WatchState` in, `WatchActions` out |
 
-The GW-BX5600 keeps its clock tables in three blocks on a second pair of Bluetooth characteristics and takes a new time only after all three were read and written back. `protocol/Time.kt` documents the layout.
+A watch takes a new time only after its clock tables were read and written back. The GW-BX5600 keeps them in three blocks on a second pair of Bluetooth characteristics (`protocol/Time.kt`); older models keep them in registers (`protocol/Registers.kt`).
 
 </details>
 
 ## 🙏 Credits
 
-The Casio protocol was reverse engineered by others. Frame and block layouts and the time zone coordinates are ported from [GShockAPI](https://github.com/izivkov/GShockAPI) by Ivo Zivkov (Apache-2.0), which builds on [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge). The seven-segment digits are [DSEG](https://github.com/keshikan/DSEG) by Keshikan (SIL Open Font License 1.1).
+The Casio protocol was reverse engineered by others. Frame, block and register layouts, the model table and the time zone coordinates are ported from [GShockAPI](https://github.com/izivkov/GShockAPI) by Ivo Zivkov (Apache-2.0), which builds on [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge). The seven-segment digits are [DSEG](https://github.com/keshikan/DSEG) by Keshikan (SIL Open Font License 1.1).
 
 Security policy and how to report a vulnerability: [SECURITY.md](SECURITY.md). Licence: [Apache-2.0](LICENSE).
-
-## 🇷🇺 По-русски
-
-Небольшое приложение для часов Casio G-Shock GW-BX5600: точное время из сети, будильники, таймер и все настройки часов. Без аккаунта, без аналитики.
-
-- **Время** берётся с серверов точного времени и записывается так, чтобы попасть на часы ровно в начале секунды.
-- **Синхронизация в фоне:** приложение само отвечает на четыре ежедневных подключения часов. Чтобы синхронизировать сразу, нажмите правую нижнюю кнопку на часах.
-- **Первый экран** показывает время, которое должно быть на часах: поднесите часы и сравните.
-- **Установка:** скачайте APK из [последнего релиза](https://github.com/krax1337/gsync/releases/latest), разрешите Bluetooth и уведомления, удерживайте левую нижнюю кнопку на часах около 3 секунд и выберите часы в приложении. В настройках приложения выберите для батареи режим «Без ограничений».
-
-Синхронизация времени проверена на реальных часах. Будильники, таймер, настройки, фоновая синхронизация и поиск телефона пока нет.

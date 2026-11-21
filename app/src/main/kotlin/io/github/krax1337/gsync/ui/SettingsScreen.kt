@@ -61,6 +61,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.krax1337.gsync.protocol.Language
+import io.github.krax1337.gsync.protocol.Setting
+import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.protocol.WatchSettings
 import io.github.krax1337.gsync.watch.Watch
 import io.github.krax1337.gsync.watch.WatchActions
@@ -72,28 +74,33 @@ private const val FINE_ADJUST_LIMIT_MS = 5000
 
 private enum class SettingsDialog { MINUTE, FINE_ADJUST, LANGUAGE, UNPAIR }
 
-/** The settings list, or the watch guide as a page in its place while [guideOpen]. */
+/** The settings list, or the page that [helpPage] names in its place. */
 @Composable
 internal fun SettingsScreen(
     state: WatchState,
     watch: Watch,
+    profile: WatchProfile,
     actions: WatchActions,
     padding: PaddingValues,
-    guideOpen: Boolean,
-    onGuideOpenChange: (Boolean) -> Unit,
+    helpPage: HelpPage?,
+    onHelpPageChange: (HelpPage?) -> Unit,
 ) {
-    // Held here, so the list is where it was left when the guide closes.
+    // Held here, so the list is where it was left when the page closes.
     val listScroll = rememberScrollState()
-    BackHandler(enabled = guideOpen) { onGuideOpenChange(false) }
+    val close = { onHelpPageChange(null) }
+    // The guide can still be open from before another watch was put on screen.
+    val open = helpPage.takeUnless { it == HelpPage.GUIDE && !profile.hasGuide }
+    BackHandler(enabled = open != null, onBack = close)
     AnimatedContent(
-        targetState = guideOpen,
+        targetState = open,
         transitionSpec = { fadeIn(tween(MOTION_MS)) togetherWith fadeOut(tween(MOTION_MS)) },
-        label = "guide",
-    ) { open ->
-        if (open) {
-            GuideScreen(padding = padding, onBack = { onGuideOpenChange(false) })
-        } else {
-            SettingsList(state, watch, actions, padding, listScroll, onOpenGuide = { onGuideOpenChange(true) })
+        label = "help page",
+    ) { page ->
+        when (page) {
+            HelpPage.GUIDE -> GuideScreen(padding = padding, homeCity = state.homeCity, onBack = close)
+            HelpPage.DIAGNOSTICS ->
+                DiagnosticsScreen(padding = padding, diagnostics = state.diagnostics, onBack = close)
+            null -> SettingsList(state, watch, profile, actions, padding, listScroll, onOpenHelp = onHelpPageChange)
         }
     }
 }
@@ -102,10 +109,11 @@ internal fun SettingsScreen(
 private fun SettingsList(
     state: WatchState,
     watch: Watch,
+    profile: WatchProfile,
     actions: WatchActions,
     padding: PaddingValues,
     scrollState: ScrollState,
-    onOpenGuide: () -> Unit,
+    onOpenHelp: (HelpPage) -> Unit,
 ) {
     val settings = state.settings
     val autoSync = state.autoSync
@@ -113,7 +121,7 @@ private fun SettingsList(
 
     ScreenColumn(padding, scrollState) {
         ScreenTitle("Settings")
-        if (settings == null || autoSync == null) {
+        if (settings == null || (profile.hasAutoSync && autoSync == null)) {
             Gap()
             EmptyCard(
                 title = "Connect the watch once to load its settings",
@@ -123,23 +131,24 @@ private fun SettingsList(
 
         Gap()
         Section("Help") {
-            SettingRow(
-                title = "Watch guide",
-                supporting = "Buttons, cities, travelling",
-                onClick = onOpenGuide,
-                trailing = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
+            if (profile.hasGuide) {
+                PageRow(
+                    title = "Watch guide",
+                    supporting = "Buttons, cities, travelling",
+                    onClick = { onOpenHelp(HelpPage.GUIDE) },
+                )
+                RowDivider()
+            }
+            PageRow(
+                title = "Diagnostics",
+                supporting = "Raw data from the last sync, for bug reports",
+                onClick = { onOpenHelp(HelpPage.DIAGNOSTICS) },
             )
         }
 
         Gap()
         Section("Time sync") {
-            if (autoSync != null) {
+            if (profile.hasAutoSync && autoSync != null) {
                 SwitchRow(
                     title = "Automatic adjustment",
                     supporting = "The watch connects four times a day",
@@ -169,6 +178,7 @@ private fun SettingsList(
         if (settings != null) {
             WatchSettingSections(
                 settings = settings,
+                profile = profile,
                 onChange = actions::setSettings,
                 onPickLanguage = { dialog = SettingsDialog.LANGUAGE },
             )
@@ -176,13 +186,15 @@ private fun SettingsList(
 
         Gap()
         Section("Phone") {
-            SwitchRow(
-                title = "Phone finder",
-                supporting = "Ring this phone when you hold D (lower right) on the watch for 5 seconds",
-                checked = state.phoneFinderEnabled,
-                onCheckedChange = actions::setPhoneFinderEnabled,
-            )
-            RowDivider()
+            if (profile.hasPhoneFinder) {
+                SwitchRow(
+                    title = "Phone finder",
+                    supporting = "Ring this phone when you hold the lower-right button on the watch for 5 seconds",
+                    checked = state.phoneFinderEnabled,
+                    onCheckedChange = actions::setPhoneFinderEnabled,
+                )
+                RowDivider()
+            }
             BatteryOptimisationRow()
         }
 
@@ -229,7 +241,8 @@ private fun SettingsList(
             )
         }
         SettingsDialog.UNPAIR -> UnpairDialog(
-            model = watch.model,
+            // With several watches the model alone may not say which one.
+            watch = if (state.watches.size > 1) "${watch.model} (${watch.addressTail})" else watch.model,
             onConfirm = {
                 dismiss()
                 actions.unpair()
@@ -240,74 +253,138 @@ private fun SettingsList(
     }
 }
 
+/** The settings of the watch itself, each shown only on a model that has it. */
 @Composable
 private fun WatchSettingSections(
     settings: WatchSettings,
+    profile: WatchProfile,
     onChange: (WatchSettings) -> Unit,
     onPickLanguage: () -> Unit,
 ) {
-    Gap()
-    Section("Display") {
-        SwitchRow(
-            title = "24-hour time",
-            checked = settings.use24Hour,
-            onCheckedChange = { onChange(settings.copy(use24Hour = it)) },
-        )
-        RowDivider()
-        ChoiceRow(
-            title = "Digits",
-            supporting = "Classic imitates a seven-segment display",
-            options = listOf("Standard", "Classic"),
-            selected = if (settings.classicFont) 1 else 0,
-            onSelect = { onChange(settings.copy(classicFont = it == 1)) },
-        )
-        RowDivider()
-        ChoiceRow(
-            title = "Date format",
-            options = listOf("Day.Month", "Month.Day"),
-            selected = if (settings.dayFirst) 0 else 1,
-            onSelect = { onChange(settings.copy(dayFirst = it == 0)) },
-        )
-        RowDivider()
-        SettingRow(
-            title = "Weekday language",
-            onClick = onPickLanguage,
-            trailing = { ValueText(settings.language.label) },
-        )
-    }
+    val shown = profile.settings
+    RowSection(
+        title = "Display",
+        rows = buildList<@Composable () -> Unit> {
+            if (Setting.TIME_FORMAT in shown) {
+                add {
+                    SwitchRow(
+                        title = "24-hour time",
+                        checked = settings.use24Hour,
+                        onCheckedChange = { onChange(settings.copy(use24Hour = it)) },
+                    )
+                }
+            }
+            if (Setting.DIGITS in shown) {
+                add {
+                    ChoiceRow(
+                        title = "Digits",
+                        supporting = "Classic imitates a seven-segment display",
+                        options = listOf("Standard", "Classic"),
+                        selected = if (settings.classicFont) 1 else 0,
+                        onSelect = { onChange(settings.copy(classicFont = it == 1)) },
+                    )
+                }
+            }
+            if (Setting.DATE_FORMAT in shown) {
+                add {
+                    ChoiceRow(
+                        title = "Date format",
+                        options = listOf("Day.Month", "Month.Day"),
+                        selected = if (settings.dayFirst) 0 else 1,
+                        onSelect = { onChange(settings.copy(dayFirst = it == 0)) },
+                    )
+                }
+            }
+            if (Setting.LANGUAGE in shown) {
+                add {
+                    SettingRow(
+                        title = "Weekday language",
+                        onClick = onPickLanguage,
+                        trailing = { ValueText(settings.language.label) },
+                    )
+                }
+            }
+        },
+    )
+    RowSection(
+        title = "Light",
+        rows = buildList<@Composable () -> Unit> {
+            if (Setting.AUTO_LIGHT in shown) {
+                add {
+                    SwitchRow(
+                        title = "Auto light",
+                        supporting = "Lights up when you tilt your wrist in the dark",
+                        checked = settings.autoLight,
+                        onCheckedChange = { onChange(settings.copy(autoLight = it)) },
+                    )
+                }
+            }
+            if (Setting.LIGHT_DURATION in shown) {
+                add {
+                    ChoiceRow(
+                        title = "Illumination",
+                        options = listOf(profile.shortLight, profile.longLight),
+                        selected = if (settings.longLight) 1 else 0,
+                        onSelect = { onChange(settings.copy(longLight = it == 1)) },
+                    )
+                }
+            }
+        },
+    )
+    RowSection(
+        title = "Sound and power",
+        rows = buildList<@Composable () -> Unit> {
+            if (Setting.BUTTON_TONE in shown) {
+                add {
+                    SwitchRow(
+                        title = "Button tone",
+                        checked = settings.buttonTone,
+                        onCheckedChange = { onChange(settings.copy(buttonTone = it)) },
+                    )
+                }
+            }
+            if (Setting.POWER_SAVING in shown) {
+                add {
+                    SwitchRow(
+                        title = "Power saving",
+                        supporting = "The display sleeps while the watch is left in the dark",
+                        checked = settings.powerSaving,
+                        onCheckedChange = { onChange(settings.copy(powerSaving = it)) },
+                    )
+                }
+            }
+        },
+    )
+}
 
+/** A [Section] of [rows] with dividers between them. Without rows it is not there at all, heading included. */
+@Composable
+private fun RowSection(title: String, rows: List<@Composable () -> Unit>) {
+    if (rows.isEmpty()) return
     Gap()
-    Section("Light") {
-        SwitchRow(
-            title = "Auto light",
-            supporting = "Lights up when you tilt your wrist in the dark",
-            checked = settings.autoLight,
-            onCheckedChange = { onChange(settings.copy(autoLight = it)) },
-        )
-        RowDivider()
-        ChoiceRow(
-            title = "Illumination",
-            options = listOf("1.5 s", "3 s"),
-            selected = if (settings.longLight) 1 else 0,
-            onSelect = { onChange(settings.copy(longLight = it == 1)) },
-        )
+    Section(title) {
+        rows.forEachIndexed { index, row ->
+            if (index > 0) RowDivider()
+            row()
+        }
     }
+}
 
-    Gap()
-    Section("Sound and power") {
-        SwitchRow(
-            title = "Button tone",
-            checked = settings.buttonTone,
-            onCheckedChange = { onChange(settings.copy(buttonTone = it)) },
-        )
-        RowDivider()
-        SwitchRow(
-            title = "Power saving",
-            supporting = "The display sleeps while the watch is left in the dark",
-            checked = settings.powerSaving,
-            onCheckedChange = { onChange(settings.copy(powerSaving = it)) },
-        )
-    }
+/** A row that opens a page. */
+@Composable
+private fun PageRow(title: String, supporting: String, onClick: () -> Unit) {
+    SettingRow(
+        title = title,
+        supporting = supporting,
+        onClick = onClick,
+        trailing = {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    )
 }
 
 /** Title with a full-width segmented control under it; side by side they do not fit 360dp. */
@@ -499,13 +576,13 @@ private fun LanguageDialog(selected: Language, onSelect: (Language) -> Unit, onD
 }
 
 @Composable
-private fun UnpairDialog(model: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+private fun UnpairDialog(watch: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Unpair this watch?") },
         text = {
-            Text("G-Sync stops syncing the $model until you pair it again. Alarms and settings stay on the watch.")
+            Text("G-Sync stops syncing the $watch until you pair it again. Alarms and settings stay on the watch.")
         },
         confirmButton = {
             TextButton(

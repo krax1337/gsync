@@ -4,12 +4,18 @@ import io.github.krax1337.gsync.protocol.AlarmSet
 import io.github.krax1337.gsync.protocol.AppInfo
 import io.github.krax1337.gsync.protocol.AutoSync
 import io.github.krax1337.gsync.protocol.ClockBlocks
+import io.github.krax1337.gsync.protocol.ClockRegisters
 import io.github.krax1337.gsync.protocol.Condition
 import io.github.krax1337.gsync.protocol.Feature
 import io.github.krax1337.gsync.protocol.HomeLocation
+import io.github.krax1337.gsync.protocol.ProtocolException
+import io.github.krax1337.gsync.protocol.Support
+import io.github.krax1337.gsync.protocol.TimeProtocol
 import io.github.krax1337.gsync.protocol.Timer
 import io.github.krax1337.gsync.protocol.Trigger
+import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.protocol.frameOf
 import io.github.krax1337.gsync.protocol.timeFrame
 import kotlinx.coroutines.delay
 import java.time.Instant
@@ -31,9 +37,29 @@ interface WatchLink {
     suspend fun writeBlock(block: ByteArray)
 }
 
-/** The watch operations of this app, on top of a [WatchLink]. */
-class WatchSession(private val link: WatchLink, private val monotonicMs: () -> Long) {
+/** What a time sync did. */
+class TimeSync(
+    /** The instant (epoch ms) the watch was set to. */
+    val setToMs: Long,
+    /** What the watch sent on the way, each with a short label, for diagnostics. */
+    val read: List<Pair<String, ByteArray>>,
+    /** City names stored on the watch by index, 0 being home. Empty if they could not be read. */
+    val cityNames: Map<Int, String>,
+)
+
+/**
+ * The watch operations of this app, on top of a [WatchLink].
+ *
+ * What is exchanged follows [profile]: a feature the model lacks never reaches the watch. Reading
+ * one returns null, writing one is refused.
+ */
+class WatchSession(private val link: WatchLink, private val profile: WatchProfile, private val monotonicMs: () -> Long) {
     private val writeRoundTripsMs = ArrayList<Long>()
+
+    init {
+        // Nothing is known about such a watch, so nothing may be sent to it.
+        if (profile.support == Support.UNSUPPORTED) throw ProtocolException("G-Sync does not support the ${profile.model}")
+    }
 
     /** First exchange of every connection. */
     suspend fun hello(): Trigger {
@@ -42,21 +68,86 @@ class WatchSession(private val link: WatchLink, private val monotonicMs: () -> L
     }
 
     /**
-     * Sets the time and returns the instant (epoch ms) the watch was set to.
+     * Sets the time.
      *
-     * The watch only takes a new time after its three clock blocks have been written back (see
-     * [ClockBlocks]). The time itself is written so that it reaches the watch on a whole second:
-     * correct whether or not the firmware honours the sub-second byte.
+     * The watch only takes a new time after its clock tables have been written back: three blocks
+     * (see [ClockBlocks]) or a row of registers (see [ClockRegisters]), depending on the model.
+     * The time itself is written so that it reaches the watch on a whole second: correct whether
+     * or not the firmware honours the sub-second byte.
      */
-    suspend fun syncTime(zoneId: ZoneId, nowMs: () -> Long): Long {
-        val home = HomeLocation.of(zoneId, Instant.ofEpochMilli(nowMs()))
-        val slots = link.requestBlock(ClockBlocks.SLOT_REQUEST, ClockBlocks.SLOT_SIZE)
-        writeBlock(ClockBlocks.slotWriteBack(slots))
-        val zones = link.requestBlock(ClockBlocks.ZONE_REQUEST, ClockBlocks.ZONE_SIZE)
-        writeBlock(ClockBlocks.zoneWriteBack(zones, home))
-        val cities = link.requestBlock(ClockBlocks.CITY_REQUEST, ClockBlocks.CITY_SIZE)
-        writeBlock(ClockBlocks.cityWriteBack(cities))
+    suspend fun syncTime(zoneId: ZoneId, nowMs: () -> Long): TimeSync =
+        when (profile.timeProtocol) {
+            TimeProtocol.CLOCK_BLOCKS -> {
+                val home = HomeLocation.of(zoneId, Instant.ofEpochMilli(nowMs()))
+                val slots = link.requestBlock(ClockBlocks.SLOT_REQUEST, ClockBlocks.SLOT_SIZE)
+                writeBlock(ClockBlocks.slotWriteBack(slots))
+                val zones = link.requestBlock(ClockBlocks.ZONE_REQUEST, ClockBlocks.ZONE_SIZE)
+                writeBlock(ClockBlocks.zoneWriteBack(zones, home))
+                val cities = link.requestBlock(ClockBlocks.CITY_REQUEST, ClockBlocks.CITY_SIZE)
+                writeBlock(ClockBlocks.cityWriteBack(cities))
+                val read = listOf("slots" to slots, "zones" to zones, "cities" to cities)
+                TimeSync(writeTimeOnSecond(zoneId, nowMs), read, ClockBlocks.cityNames(cities))
+            }
+            TimeProtocol.REGISTERS -> {
+                val read = ClockRegisters.requests(profile).map { (label, request) ->
+                    val register = link.request(*request)
+                    write(register)
+                    label to register
+                }
+                TimeSync(writeTimeOnSecond(zoneId, nowMs), read, ClockRegisters.cityNames(read.map { it.second }))
+            }
+        }
 
+    suspend fun readAlarms(): AlarmSet {
+        val first = link.request(Feature.ALARM)
+        val rest = if (profile.alarmCount > 1) link.request(Feature.ALARMS) else frameOf(Feature.ALARMS)
+        return AlarmSet.decode(first, rest).forModel()
+    }
+
+    suspend fun writeAlarms(alarms: AlarmSet) {
+        if (alarms.alarms.size != profile.alarmCount) {
+            throw ProtocolException("The ${profile.model} has ${profile.alarmCount} alarms, not ${alarms.alarms.size}")
+        }
+        val set = alarms.forModel()
+        write(set.firstFrame())
+        if (profile.alarmCount > 1) write(set.restFrame())
+    }
+
+    /** Null on a model without a timer this app can set. */
+    suspend fun readTimer(): Int? = if (profile.hasTimer) Timer.decode(link.request(Feature.TIMER)) else null
+
+    suspend fun writeTimer(seconds: Int) {
+        if (!profile.hasTimer) lacks("timer")
+        write(Timer.applyTo(link.request(Feature.TIMER), seconds))
+    }
+
+    suspend fun readSettings(): WatchSettings = WatchSettings.decode(link.request(Feature.SETTINGS))
+
+    suspend fun writeSettings(settings: WatchSettings) = write(settings.applyTo(link.request(Feature.SETTINGS), profile.settings))
+
+    /** Null on a model without automatic time adjustment. */
+    suspend fun readAutoSync(): AutoSync? = if (profile.hasAutoSync) AutoSync.decode(link.request(Feature.AUTO_SYNC)) else null
+
+    suspend fun writeAutoSync(autoSync: AutoSync) {
+        if (!profile.hasAutoSync) lacks("automatic time adjustment")
+        write(autoSync.applyTo(link.request(Feature.AUTO_SYNC)))
+    }
+
+    /** Battery and temperature, as far as the model reports them. */
+    suspend fun readCondition(): Condition =
+        if (profile.hasBattery || profile.hasTemperature) {
+            Condition.decode(link.request(Feature.CONDITION), profile)
+        } else {
+            Condition(batteryPercent = null, temperatureC = null)
+        }
+
+    /** A model without the hourly signal may use its flag for something else: it stays off. */
+    private fun AlarmSet.forModel(): AlarmSet = if (profile.hasHourlySignal) this else copy(hourlyChime = false)
+
+    private fun lacks(feature: String): Nothing = throw ProtocolException("The ${profile.model} has no $feature this app can set")
+
+    /** Writes the time so that it lands on a whole second and returns the instant (epoch ms) it was set to. */
+    private suspend fun writeTimeOnSecond(zoneId: ZoneId, nowMs: () -> Long): Long {
         val lead = transmitLeadMs()
         repeat(BOUNDARY_ATTEMPTS) {
             val target = (nowMs() + lead) / 1000 * 1000 + 1000
@@ -68,29 +159,10 @@ class WatchSession(private val link: WatchLink, private val monotonicMs: () -> L
             }
         }
         // Timers keep firing late (device busy or dozing): send the exact instant instead.
-        return (nowMs() + lead).also { writeTime(it, zoneId) }
+        val exact = nowMs() + lead
+        writeTime(exact, zoneId)
+        return exact
     }
-
-    suspend fun readAlarms(): AlarmSet = AlarmSet.decode(link.request(Feature.ALARM), link.request(Feature.ALARMS))
-
-    suspend fun writeAlarms(alarms: AlarmSet) {
-        write(alarms.firstFrame())
-        write(alarms.restFrame())
-    }
-
-    suspend fun readTimer(): Int = Timer.decode(link.request(Feature.TIMER))
-
-    suspend fun writeTimer(seconds: Int) = write(Timer.applyTo(link.request(Feature.TIMER), seconds))
-
-    suspend fun readSettings(): WatchSettings = WatchSettings.decode(link.request(Feature.SETTINGS))
-
-    suspend fun writeSettings(settings: WatchSettings) = write(settings.applyTo(link.request(Feature.SETTINGS)))
-
-    suspend fun readAutoSync(): AutoSync = AutoSync.decode(link.request(Feature.AUTO_SYNC))
-
-    suspend fun writeAutoSync(autoSync: AutoSync) = write(autoSync.applyTo(link.request(Feature.AUTO_SYNC)))
-
-    suspend fun readCondition(): Condition = Condition.decode(link.request(Feature.CONDITION))
 
     private suspend fun writeTime(epochMs: Long, zoneId: ZoneId) =
         link.write(timeFrame(LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), zoneId)))

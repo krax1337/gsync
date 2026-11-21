@@ -35,12 +35,14 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -50,8 +52,11 @@ import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.LongState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,13 +70,21 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import io.github.krax1337.gsync.protocol.WatchCities
+import io.github.krax1337.gsync.protocol.WatchCity
+import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.watch.Watch
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Locale
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 
 internal const val SECOND_MS = 1_000L
@@ -86,6 +99,14 @@ internal val TWO_DIGITS: List<String> = List(60) { "%02d".format(Locale.ROOT, it
 /** "GW-BX5600" from the advertised "CASIO GW-BX5600". */
 internal val Watch.model: String
     get() = name.removePrefix("CASIO ").trim().ifEmpty { name }
+
+/** "CD:EF" from "D3:60:41:AB:CD:EF": enough to tell two watches of one model apart. */
+internal val Watch.addressTail: String
+    get() = address.takeLast(5)
+
+/** The watch guide is written for the GW-BX5600: its buttons, its menus. */
+internal val WatchProfile.hasGuide: Boolean
+    get() = model.startsWith("GW-BX5600")
 
 /** ":05" for minute 5. */
 internal fun minuteLabel(minute: Int): String = ":%02d".format(Locale.ROOT, minute)
@@ -208,6 +229,26 @@ internal fun ScreenTitle(text: String) {
         style = MaterialTheme.typography.headlineMedium,
         modifier = Modifier.padding(top = 8.dp).semantics { heading() },
     )
+}
+
+/** Top bar of a page that takes the place of a screen. Stays in place above the scrolling body. */
+@Composable
+internal fun PageTopBar(title: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 4.dp).semantics { heading() },
+        )
+    }
 }
 
 /** Rounded container that rows and card content sit in. */
@@ -340,9 +381,12 @@ internal fun ErrorBanner(message: String) {
     Banner(text = message, icon = Icons.Outlined.Warning, color = MaterialTheme.colorScheme.errorContainer)
 }
 
-/** How to make the watch connect; shown wherever the app is waiting for it. */
+/**
+ * How to make the watch connect; shown wherever the app is waiting for it. Ends in the way to the
+ * guide when there is one for the watch.
+ */
 @Composable
-internal fun ConnectHint(onOpenGuide: () -> Unit) {
+internal fun ConnectHint(onOpenGuide: (() -> Unit)?) {
     Banner(
         text = "Press the lower-right button on the watch to sync now. " +
             "Hold the lower-left button for 3 seconds to stay connected.",
@@ -350,8 +394,8 @@ internal fun ConnectHint(onOpenGuide: () -> Unit) {
         color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        actionLabel = "Watch guide",
-        onAction = onOpenGuide,
+        actionLabel = "Watch guide".takeIf { onOpenGuide != null },
+        onAction = onOpenGuide ?: {},
     )
 }
 
@@ -453,3 +497,65 @@ internal fun Step(number: Int, text: String) {
         Text(text = text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
     }
 }
+
+/** What the app says about the time zone this phone is in. */
+internal class PhoneZone(
+    val id: String,
+    /** "UTC+5", or "UTC+1 standard time" while the zone is on summer time. */
+    val offset: String,
+    /** The cities to choose on the watch for this zone; none when the watch has no city there. */
+    val matches: List<WatchCity>,
+) {
+    /** "SIN SINGAPORE, HKG HONG KONG or TPE TAIPEI"; empty when the watch has no city there. */
+    val cities: String = matches.map { it.label(it.name) }.let { labels ->
+        if (labels.size < 2) labels.joinToString() else labels.dropLast(1).joinToString() + " or " + labels.last()
+    }
+
+    companion object {
+        fun of(zone: ZoneId, at: Instant): PhoneZone {
+            // Standard time is what the watch's cities are listed by, and what they are matched on.
+            val standard = utcOffsetLabel(zone.rules.getStandardOffset(at).totalSeconds / 60)
+            return PhoneZone(
+                id = zone.id,
+                offset = if (zone.rules.isDaylightSavings(at)) "$standard standard time" else standard,
+                matches = WatchCities.matching(zone, at),
+            )
+        }
+    }
+}
+
+/**
+ * The zone this phone is in. Read again whenever the app comes back to the front: the phone
+ * changes zone while the app is away, on a flight most of all.
+ */
+@Composable
+internal fun rememberPhoneZone(): PhoneZone {
+    var zone by remember { mutableStateOf(ZoneId.systemDefault()) }
+    LifecycleResumeEffect(Unit) {
+        zone = ZoneId.systemDefault()
+        onPauseOrDispose { }
+    }
+    return remember(zone) { PhoneZone.of(zone, Instant.now()) }
+}
+
+/** "KHI KARACHI" for the [name] given; the name alone for the two entries without a code. */
+internal fun WatchCity.label(name: String): String = if (code.isEmpty()) name else "$code $name"
+
+/** "UTC+5", "UTC+5:45", "UTC-3:30", and "UTC" for zero. */
+internal fun utcOffsetLabel(offsetMinutes: Int): String {
+    if (offsetMinutes == 0) return "UTC"
+    val sign = if (offsetMinutes < 0) '-' else '+'
+    val hours = abs(offsetMinutes) / 60
+    val minutes = abs(offsetMinutes) % 60
+    return if (minutes == 0) "UTC$sign$hours" else "UTC$sign$hours:${TWO_DIGITS[minutes]}"
+}
+
+/** "Rio de Janeiro" from "RIO DE JANEIRO"; "UTC" stays as it is. */
+internal fun titleCase(name: String): String =
+    name.split(' ').joinToString(" ") { word ->
+        when (word) {
+            "UTC" -> word
+            "DE" -> "de"
+            else -> word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
+        }
+    }

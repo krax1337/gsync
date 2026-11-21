@@ -7,14 +7,15 @@ enum class Language { ENGLISH, SPANISH, FRENCH, GERMAN, ITALIAN, RUSSIAN }
  * Basic watch settings from [Feature.SETTINGS].
  *
  * Writing goes through [applyTo]: only the bits modelled here change, everything else in the frame
- * goes back the way the watch sent it.
+ * goes back the way the watch sent it. A field the model lacks (see [WatchProfile.settings]) holds
+ * whatever its bits happened to say and is never written.
  */
 data class WatchSettings(
     val use24Hour: Boolean,
     val buttonTone: Boolean,
     val autoLight: Boolean,
     val powerSaving: Boolean,
-    /** Backlight stays on for 3 s instead of 1.5 s. */
+    /** Backlight stays on for the longer of the two durations the model offers. */
     val longLight: Boolean,
     /** Date reads day.month instead of month.day. */
     val dayFirst: Boolean,
@@ -22,18 +23,21 @@ data class WatchSettings(
     /** Seven-segment style digits instead of the standard typeface. */
     val classicFont: Boolean,
 ) {
-    fun applyTo(frame: ByteArray): ByteArray {
+    /** [frame] with these settings in it. Of the settings, only [fields] are written. */
+    fun applyTo(frame: ByteArray, fields: Set<Setting> = Setting.entries.toSet()): ByteArray {
         val out = frame.requireFrame(Feature.SETTINGS, MIN_SIZE).copyOf()
-        out[1] = out.u(1)
-            .withBit(HOUR_24, use24Hour)
-            .withBit(TONE_OFF, !buttonTone)
-            .withBit(AUTO_LIGHT_OFF, !autoLight)
-            .withBit(POWER_SAVING_OFF, !powerSaving)
-            .toByte()
-        out[2] = out.u(2).withBit(LIGHT_LONG, longLight).toByte()
-        out[4] = if (dayFirst) 1 else 0
-        out[5] = language.ordinal.toByte()
-        if (out.size > FONT_INDEX) out[FONT_INDEX] = out.u(FONT_INDEX).withBit(FONT_CLASSIC, classicFont).toByte()
+        var flags = out.u(1)
+        if (Setting.TIME_FORMAT in fields) flags = flags.withBit(HOUR_24, use24Hour)
+        if (Setting.BUTTON_TONE in fields) flags = flags.withBit(TONE_OFF, !buttonTone)
+        if (Setting.AUTO_LIGHT in fields) flags = flags.withBit(AUTO_LIGHT_OFF, !autoLight)
+        if (Setting.POWER_SAVING in fields) flags = flags.withBit(POWER_SAVING_OFF, !powerSaving)
+        out[1] = flags.toByte()
+        if (Setting.LIGHT_DURATION in fields) out[2] = out.u(2).withBit(LIGHT_LONG, longLight).toByte()
+        if (Setting.DATE_FORMAT in fields) out[4] = if (dayFirst) 1 else 0
+        if (Setting.LANGUAGE in fields) out[5] = language.ordinal.toByte()
+        if (Setting.DIGITS in fields && out.size > FONT_INDEX) {
+            out[FONT_INDEX] = out.u(FONT_INDEX).withBit(FONT_CLASSIC, classicFont).toByte()
+        }
         return out
     }
 

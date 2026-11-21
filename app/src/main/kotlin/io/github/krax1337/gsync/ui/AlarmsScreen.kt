@@ -52,6 +52,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.krax1337.gsync.protocol.Alarm
 import io.github.krax1337.gsync.protocol.AlarmSet
+import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.watch.WatchActions
 import io.github.krax1337.gsync.watch.WatchState
 import java.time.Duration
@@ -66,14 +67,14 @@ private val TIMER_PRESETS = listOf(60, 180, 300, 600, 900, 1800, 3600)
 /** The watch counts down from 1 second to 24 hours. */
 private const val TIMER_MAX_SECONDS = 24 * 60 * 60
 
-/** The last alarm is the watch's snooze alarm. */
-private const val SNOOZE_INDEX = AlarmSet.COUNT - 1
 private const val SNOOZE_NOTE = "repeats every 5 min, up to 7 times"
 
 @Composable
-internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: PaddingValues) {
+internal fun AlarmsScreen(state: WatchState, profile: WatchProfile, actions: WatchActions, padding: PaddingValues) {
     val alarms = state.alarms
-    val timer = state.timerSeconds
+    val timer = state.timerSeconds.takeIf { profile.hasTimer }
+    // On a watch with a snooze alarm it is the last one.
+    val snoozeIndex = if (profile.lastAlarmIsSnooze && alarms != null) alarms.alarms.lastIndex else -1
     // Times read the way the watch shows them; the phone setting stands in until that is known.
     val is24Hour = state.settings?.use24Hour ?: DateFormat.is24HourFormat(LocalContext.current)
     val nowMinute = rememberTicks(offsetMs = state.clock.offsetMs, unitMs = MINUTE_MS)
@@ -82,10 +83,14 @@ internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: Pad
 
     ScreenColumn(padding) {
         ScreenTitle("Alarms")
-        if (alarms == null || timer == null) {
+        if (alarms == null || (profile.hasTimer && timer == null)) {
             Gap()
             EmptyCard(
-                title = "Connect the watch once to load its alarms and timer",
+                title = if (profile.hasTimer) {
+                    "Connect the watch once to load its alarms and timer"
+                } else {
+                    "Connect the watch once to load its alarms"
+                },
                 text = "Hold the lower-left button on the watch for about 3 seconds, until CONNECT appears.",
             )
         }
@@ -96,8 +101,8 @@ internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: Pad
                     key(index) {
                         if (index > 0) RowDivider()
                         AlarmRow(
-                            label = alarmLabel(index),
-                            enabledNote = SNOOZE_NOTE.takeIf { index == SNOOZE_INDEX },
+                            label = alarmLabel(index, snooze = index == snoozeIndex),
+                            enabledNote = SNOOZE_NOTE.takeIf { index == snoozeIndex },
                             alarm = alarm,
                             is24Hour = is24Hour,
                             nowMinute = nowMinute,
@@ -107,14 +112,16 @@ internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: Pad
                     }
                 }
             }
-            Gap()
-            Panel {
-                SwitchRow(
-                    title = "Hourly time signal",
-                    supporting = "A short beep on every hour",
-                    checked = alarms.hourlyChime,
-                    onCheckedChange = { actions.setAlarms(alarms.copy(hourlyChime = it)) },
-                )
+            if (profile.hasHourlySignal) {
+                Gap()
+                Panel {
+                    SwitchRow(
+                        title = "Hourly time signal",
+                        supporting = "A short beep on every hour",
+                        checked = alarms.hourlyChime,
+                        onCheckedChange = { actions.setAlarms(alarms.copy(hourlyChime = it)) },
+                    )
+                }
             }
         }
         if (timer != null) {
@@ -125,10 +132,12 @@ internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: Pad
     }
 
     val index = editing
-    if (alarms != null && index != null) {
+    // Another watch may have fewer alarms than the one the dialog was opened for.
+    val edited = index?.let { alarms?.alarms?.getOrNull(it) }
+    if (alarms != null && index != null && edited != null) {
         AlarmTimeDialog(
-            title = alarmLabel(index),
-            alarm = alarms.alarms[index],
+            title = alarmLabel(index, snooze = index == snoozeIndex),
+            alarm = edited,
             is24Hour = is24Hour,
             onConfirm = { hour, minute ->
                 actions.setAlarms(alarms.with(index, Alarm(hour = hour, minute = minute, enabled = true)))
@@ -430,7 +439,7 @@ private fun AlarmTimeDialog(
     }
 }
 
-private fun alarmLabel(index: Int): String = if (index == SNOOZE_INDEX) "Snooze alarm" else "Alarm ${index + 1}"
+private fun alarmLabel(index: Int, snooze: Boolean): String = if (snooze) "Snooze alarm" else "Alarm ${index + 1}"
 
 private fun AlarmSet.with(index: Int, alarm: Alarm): AlarmSet =
     copy(alarms = alarms.mapIndexed { i, current -> if (i == index) alarm else current })

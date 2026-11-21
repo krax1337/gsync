@@ -31,6 +31,8 @@ object ClockBlocks {
     private const val SLOT_WRITE = 0x02
     private const val ZONE_WRITE = 0x06
     private const val TIME_SLOT = 0x24
+    private const val CITY_NAME = 0x1F
+    private const val CITY_RECORD = 22
     private const val SLOTS = 3
 
     fun slotWriteBack(block: ByteArray): ByteArray = block.requireBlock(0x05, SLOT_SIZE).withHeader(SLOT_WRITE)
@@ -42,6 +44,24 @@ object ClockBlocks {
         }
 
     fun cityWriteBack(block: ByteArray): ByteArray = block.requireBlock(0x06, CITY_SIZE)
+
+    /**
+     * The city names in the city block by index: 0 is the home city, 1 and 2 are the world time
+     * cities.
+     *
+     * The layout is inferred from the sizes, not documented: six 22-byte records, each a classic
+     * `1F index name` frame, with or without a two-byte length in front. A record that does not
+     * look like that is left out, so the worst a wrong guess does is show no city.
+     */
+    fun cityNames(block: ByteArray): Map<Int, String> {
+        if (block.size != CITY_SIZE) return emptyMap()
+        return (1 until CITY_SIZE step CITY_RECORD).mapNotNull { start ->
+            val marker = (start..start + 2).firstOrNull { block.u(it) == CITY_NAME } ?: return@mapNotNull null
+            val text = String(block, marker + 2, start + CITY_RECORD - marker - 2, Charsets.US_ASCII)
+            val name = text.takeWhile { it in ' '..'~' }.trim()
+            if (name.isEmpty()) null else block.u(marker + 1) to name
+        }.toMap()
+    }
 
     /** `14 00 24 slot 01`, latitude and longitude as big-endian doubles, then the DST flag. */
     private fun locationRecord(slot: Int, location: HomeLocation): ByteArray =

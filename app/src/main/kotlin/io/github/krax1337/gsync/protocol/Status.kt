@@ -36,16 +36,17 @@ object AppInfo {
     val DEFAULT: ByteArray = "223488F4E5D5AFC829E06D02".hexToFrame()
 }
 
-data class Condition(val batteryPercent: Int, val temperatureC: Int) {
+/** Battery charge and temperature from [Feature.CONDITION]. What the model does not report is null. */
+data class Condition(val batteryPercent: Int?, val temperatureC: Int?) {
     companion object {
-        // Raw battery reading spans 14 (empty) to 24 (full) on this module.
-        private const val BATTERY_EMPTY = 14
-        private const val BATTERY_FULL = 24
-
-        fun decode(frame: ByteArray): Condition {
+        fun decode(frame: ByteArray, profile: WatchProfile): Condition {
             frame.requireFrame(Feature.CONDITION, 3)
-            val percent = (frame.u(1) - BATTERY_EMPTY) * 100 / (BATTERY_FULL - BATTERY_EMPTY)
-            return Condition(percent.coerceIn(0, 100), frame[2].toInt())
+            val scale = profile.batteryScale
+            val percent = (frame.u(1) - scale.first) * 100 / (scale.last - scale.first)
+            return Condition(
+                batteryPercent = percent.coerceIn(0, 100).takeIf { profile.hasBattery },
+                temperatureC = frame[2].toInt().takeIf { profile.hasTemperature },
+            )
         }
     }
 }

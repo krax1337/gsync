@@ -11,7 +11,9 @@ import io.github.krax1337.gsync.protocol.ProtocolException
 import io.github.krax1337.gsync.protocol.Timer
 import io.github.krax1337.gsync.protocol.Trigger
 import io.github.krax1337.gsync.protocol.WatchCities
+import io.github.krax1337.gsync.protocol.WatchProfiles
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.protocol.frameOf
 import io.github.krax1337.gsync.protocol.hexToFrame
 import io.github.krax1337.gsync.protocol.timeFrame
 import io.github.krax1337.gsync.protocol.toHex
@@ -72,6 +74,21 @@ class ProtocolTest {
     }
 
     @Test
+    fun `city names are read from the city block whatever pads them`() {
+        fun record(index: Int, name: String, pad: Int) =
+            frameOf(0x14, 0x00, 0x1F, index) + ByteArray(18) { if (it < name.length) name[it].code.toByte() else pad.toByte() }
+        val block = frameOf(0x06) +
+            record(0, "KARACHI", 0x00) + record(6, "", 0x00) +
+            record(1, "NEW YORK", 0x20) + record(7, "", 0x20) +
+            record(2, "F. DE NORONHA", 0xFF) + record(8, "", 0xFF)
+
+        assertEquals(mapOf(0 to "KARACHI", 1 to "NEW YORK", 2 to "F. DE NORONHA"), ClockBlocks.cityNames(block))
+        // A block that is not laid out as expected shows no city instead of a wrong one.
+        assertEquals(emptyMap<Int, String>(), ClockBlocks.cityNames(ByteArray(133) { 0x41 }))
+        assertEquals(emptyMap<Int, String>(), ClockBlocks.cityNames(block.copyOf(100)))
+    }
+
+    @Test
     fun `alarms round trip through both frames`() {
         val first = "15C0400700".hexToFrame() // 07:00, enabled, hourly signal on
         val rest = "16" + "00400C1E" + "4040170F" + "00400000" + "00400000"
@@ -85,6 +102,15 @@ class ProtocolTest {
         )
         assertEquals(first.toHex(), alarms.firstFrame().toHex())
         assertEquals(rest, alarms.restFrame().toHex())
+    }
+
+    @Test
+    fun `a watch with any number of alarms is stored and read back as its two frames`() {
+        for (count in 1..6) {
+            val alarms = AlarmSet(List(count) { Alarm(hour = it + 6, minute = it * 5, enabled = it % 2 == 0) }, hourlyChime = count % 2 == 0)
+            assertEquals(alarms, AlarmSet.decode(alarms.firstFrame(), alarms.restFrame()))
+            assertEquals(4 * (count - 1), alarms.restFrame().size - 1)
+        }
     }
 
     @Test
@@ -142,6 +168,27 @@ class ProtocolTest {
     }
 
     @Test
+    fun `a setting the model lacks keeps the bits the watch sent`() {
+        val fromWatch = "13E8FE7700000000CF0000000000000000".hexToFrame()
+        // Switching auto light off and the digits to classic would set bit 2 of byte 1 and bit 5 of byte 8.
+        val edited = WatchSettings(
+            use24Hour = true,
+            buttonTone = false,
+            autoLight = false,
+            powerSaving = false,
+            longLight = true,
+            dayFirst = false,
+            language = Language.GERMAN,
+            classicFont = true,
+        )
+        assertEquals("13FFFF7700030000EF0000000000000000", edited.applyTo(fromWatch).toHex())
+        // The GA-B2100 has neither auto light nor a choice of digits.
+        val fields = WatchProfiles.of("CASIO GA-B2100").settings
+        assertEquals("13FBFF7700030000CF0000000000000000", edited.applyTo(fromWatch, fields).toHex())
+        assertEquals(fromWatch.toHex(), edited.applyTo(fromWatch, emptySet()).toHex())
+    }
+
+    @Test
     fun `auto sync lives in bytes 12 and 13`() {
         val on = "110F0F0F06005000040001000037D2".hexToFrame()
         assertEquals(AutoSync(enabled = true, minute = 55), AutoSync.decode(on))
@@ -150,9 +197,26 @@ class ProtocolTest {
 
     @Test
     fun `battery reading is scaled to percent`() {
-        assertEquals(Condition(batteryPercent = 100, temperatureC = 27), Condition.decode("28181B00".hexToFrame()))
-        assertEquals(Condition(batteryPercent = 50, temperatureC = -3), Condition.decode("2813FD00".hexToFrame()))
-        assertEquals(0, Condition.decode("280A1B00".hexToFrame()).batteryPercent)
+        val watch = WatchProfiles.of("CASIO GW-BX5600")
+        assertEquals(Condition(batteryPercent = 100, temperatureC = 27), Condition.decode("28181B00".hexToFrame(), watch))
+        assertEquals(Condition(batteryPercent = 50, temperatureC = -3), Condition.decode("2813FD00".hexToFrame(), watch))
+        assertEquals(0, Condition.decode("280A1B00".hexToFrame(), watch).batteryPercent)
+    }
+
+    @Test
+    fun `the same battery reading means more on a module with a lower scale`() {
+        val watch = WatchProfiles.of("CASIO GW-B5600")
+        assertEquals(100, Condition.decode("28131B00".hexToFrame(), watch).batteryPercent)
+        assertEquals(50, Condition.decode("280E1B00".hexToFrame(), watch).batteryPercent)
+        assertEquals(0, Condition.decode("28091B00".hexToFrame(), watch).batteryPercent)
+    }
+
+    @Test
+    fun `a value the model does not report is not made up`() {
+        val reading = "28131B00".hexToFrame()
+        // The GBD-200 has no thermometer, the ABL-100WE reports neither.
+        assertEquals(Condition(batteryPercent = 100, temperatureC = null), Condition.decode(reading, WatchProfiles.of("CASIO GBD-200")))
+        assertEquals(Condition(batteryPercent = null, temperatureC = null), Condition.decode(reading, WatchProfiles.of("CASIO ABL-100WE")))
     }
 
     @Test

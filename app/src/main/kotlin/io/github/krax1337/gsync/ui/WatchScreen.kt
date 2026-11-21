@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,10 +33,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -44,22 +50,30 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.krax1337.gsync.protocol.AutoSync
 import io.github.krax1337.gsync.protocol.Language
+import io.github.krax1337.gsync.protocol.Support
 import io.github.krax1337.gsync.protocol.Trigger
+import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.watch.ClockSource
 import io.github.krax1337.gsync.watch.LinkState
 import io.github.krax1337.gsync.watch.SyncRecord
@@ -79,11 +93,13 @@ private val SYNC_TIME_12 = DateTimeFormatter.ofPattern("EEE d MMM, h:mm:ss a", L
 internal fun WatchScreen(
     state: WatchState,
     watch: Watch,
+    profile: WatchProfile,
     actions: WatchActions,
     permissionsGranted: Boolean,
     onRequestPermissions: () -> Unit,
     padding: PaddingValues,
-    onOpenGuide: () -> Unit,
+    onOpenHelp: (HelpPage) -> Unit,
+    onAddWatch: () -> Unit,
 ) {
     val context = LocalContext.current
     val settings = state.settings
@@ -93,9 +109,19 @@ internal fun WatchScreen(
         val order = DateFormat.getDateFormatOrder(context)
         order.indexOf('d') < order.indexOf('M')
     }
+    val openGuide = { onOpenHelp(HelpPage.GUIDE) }.takeIf { profile.hasGuide }
 
     ScreenColumn(padding) {
-        Header(model = watch.model, link = state.link)
+        Header(
+            watches = state.watches,
+            watch = watch,
+            link = state.link,
+            onSelect = actions::select,
+            onAddWatch = onAddWatch,
+        )
+        RevealNotNull(value = profile.takeIf { it.support == Support.EXPERIMENTAL }) {
+            ExperimentalNotice(model = it.model, onOpenDiagnostics = { onOpenHelp(HelpPage.DIAGNOSTICS) })
+        }
         Reveal(visible = !permissionsGranted) { PermissionBanner(onRequestPermissions) }
         RevealNotNull(value = state.lastError) { ErrorBanner(it) }
 
@@ -108,8 +134,17 @@ internal fun WatchScreen(
         )
         Gap()
         LastSync(sync = state.lastSync, offsetMs = state.clock.offsetMs, use24Hour = use24Hour)
-        Gap()
-        StatTiles(battery = state.batteryPercent, temperature = state.temperatureC, autoSync = state.autoSync)
+        RevealNotNull(value = state.homeCity) {
+            CityCard(home = it, world = state.worldCities, onOpenGuide = openGuide)
+        }
+        Reveal(visible = profile.hasBattery || profile.hasTemperature || profile.hasAutoSync) {
+            StatTiles(
+                profile = profile,
+                battery = state.batteryPercent,
+                temperature = state.temperatureC,
+                autoSync = state.autoSync,
+            )
+        }
 
         Reveal(visible = state.link == LinkState.CONNECTED || state.link == LinkState.SYNCING) {
             ConnectedActions(
@@ -118,20 +153,128 @@ internal fun WatchScreen(
                 onDisconnect = actions::disconnect,
             )
         }
-        Reveal(visible = state.link == LinkState.WAITING) { ConnectHint(onOpenGuide) }
+        Reveal(visible = state.link == LinkState.WAITING) { ConnectHint(openGuide) }
         Reveal(visible = state.pendingWrites) { PendingBanner() }
     }
 }
 
 @Composable
-private fun Header(model: String, link: LinkState) {
-    Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = model,
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.semantics { heading() },
-        )
+private fun Header(
+    watches: List<Watch>,
+    watch: Watch,
+    link: LinkState,
+    onSelect: (String) -> Unit,
+    onAddWatch: () -> Unit,
+) {
+    // The title's touch target reaches 6dp above and below its text. With 2dp gaps the text and
+    // the pill sit where 8dp gaps around a plain title would put them.
+    Column(modifier = Modifier.padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        WatchSwitcher(watches, watch, onSelect, onAddWatch)
         StatusPill(link)
+    }
+}
+
+/**
+ * Said once, under the status: nobody has confirmed the app on this model, and what to send
+ * along when something is wrong.
+ */
+@Composable
+private fun ExperimentalNotice(model: String, onOpenDiagnostics: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Panel(color = scheme.tertiaryContainer) {
+        Column(modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 4.dp)) {
+            Column(modifier = Modifier.semantics(mergeDescendants = true) {}.padding(end = 8.dp)) {
+                Text(text = "Experimental", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = "G-Sync has not been confirmed on the $model yet. " +
+                        "If something is off, send the diagnostics with your report.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            TextButton(
+                onClick = onOpenDiagnostics,
+                modifier = Modifier.align(Alignment.End),
+                colors = ButtonDefaults.textButtonColors(contentColor = scheme.onTertiaryContainer),
+            ) {
+                Text("Diagnostics")
+            }
+        }
+    }
+}
+
+/**
+ * The model of the watch on screen as the title. Tapping it lists every paired watch, to put
+ * another one on screen, and is the way to pair a further one.
+ */
+@Composable
+private fun WatchSwitcher(
+    watches: List<Watch>,
+    watch: Watch,
+    onSelect: (String) -> Unit,
+    onAddWatch: () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(MaterialTheme.shapes.small)
+                .semantics { heading() }
+                .clickable(role = Role.DropdownList) { expanded = true }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = watch.model,
+                style = MaterialTheme.typography.headlineMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Icon(
+                imageVector = Icons.Filled.ArrowDropDown,
+                contentDescription = "Choose a watch",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            watches.forEach { entry ->
+                val shown = entry.address == watch.address
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(entry.model)
+                            Text(
+                                text = entry.addressTail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        if (!shown) {
+                            haptics.tick()
+                            onSelect(entry.address)
+                        }
+                    },
+                    modifier = Modifier.semantics { selected = shown },
+                    trailingIcon = if (shown) {
+                        { Icon(imageVector = Icons.Filled.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Add a watch") },
+                onClick = {
+                    expanded = false
+                    onAddWatch()
+                },
+            )
+        }
     }
 }
 
@@ -288,26 +431,98 @@ private fun SyncAge(atMs: Long, offsetMs: Long) {
     Text(text = relativeTime(minutes.longValue), style = MaterialTheme.typography.headlineSmall)
 }
 
+/**
+ * The cities the watch was set to at the last sync. G-Sync does not set them, so a home city
+ * that is not one for the zone this phone is in is pointed out, with the way to the guide when
+ * there is one for the watch.
+ */
 @Composable
-private fun StatTiles(battery: Int?, temperature: Int?, autoSync: AutoSync?) {
+private fun CityCard(home: String, world: List<String>, onOpenGuide: (() -> Unit)?) {
+    val phone = rememberPhoneZone()
+    val matches = phone.matches.any { it.name.equals(home, ignoreCase = true) }
+    // Without a city on the phone's offset there is nothing to compare the watch with.
+    val differs = !matches && phone.matches.isNotEmpty()
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Panel {
+        // Another city on the watch, or the phone in another zone, resizes the card instead of jumping.
+        Column(modifier = Modifier.animateContentSize(tween(MOTION_MS))) {
+            Column(
+                modifier = Modifier
+                    .semantics(mergeDescendants = true) {}
+                    .padding(
+                        start = 16.dp,
+                        top = 16.dp,
+                        end = 16.dp,
+                        bottom = if (differs && onOpenGuide != null) 0.dp else 16.dp,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(text = "On the watch", style = MaterialTheme.typography.labelLarge, color = muted)
+                Text(text = titleCase(home), style = MaterialTheme.typography.titleMedium)
+                if (world.isNotEmpty()) {
+                    Text(
+                        text = "World time: ${world.joinToString { titleCase(it) }}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = muted,
+                    )
+                }
+                if (matches) {
+                    Text(
+                        text = "Matches this phone's time zone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = muted,
+                    )
+                }
+                if (differs) {
+                    Text(
+                        text = "This phone is on ${phone.id} (${phone.offset}). " +
+                            "The watch city for that is ${phone.cities}. " +
+                            "The time is still set correctly; only the city on the watch differs.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            if (differs && onOpenGuide != null) {
+                TextButton(
+                    onClick = onOpenGuide,
+                    modifier = Modifier.align(Alignment.End).padding(end = 8.dp, bottom = 4.dp),
+                ) {
+                    Text("Watch guide")
+                }
+            }
+        }
+    }
+}
+
+/** The tiles the watch has something to show in; they share the row evenly. */
+@Composable
+private fun StatTiles(profile: WatchProfile, battery: Int?, temperature: Int?, autoSync: AutoSync?) {
+    val count = listOf(profile.hasBattery, profile.hasTemperature, profile.hasAutoSync).count { it }
     val tiles: @Composable (Modifier) -> Unit = { tile ->
-        StatTile(label = "Battery", value = battery?.let { "$it%" } ?: "–", modifier = tile)
-        StatTile(label = "Temperature", value = temperature?.let { "$it\u00A0°C" } ?: "–", modifier = tile)
-        StatTile(
-            label = "Auto sync",
-            value = when {
-                autoSync == null -> "–"
-                autoSync.enabled -> "4× a day"
-                else -> "Off"
-            },
-            detail = autoSync?.takeIf { it.enabled }?.let { "at ${minuteLabel(it.minute)}" },
-            modifier = tile,
-        )
+        if (profile.hasBattery) {
+            StatTile(label = "Battery", value = battery?.let { "$it%" } ?: "–", modifier = tile)
+        }
+        if (profile.hasTemperature) {
+            StatTile(label = "Temperature", value = temperature?.let { "$it\u00A0°C" } ?: "–", modifier = tile)
+        }
+        if (profile.hasAutoSync) {
+            StatTile(
+                label = "Auto sync",
+                value = when {
+                    autoSync == null -> "–"
+                    autoSync.enabled -> "4× a day"
+                    else -> "Off"
+                },
+                detail = autoSync?.takeIf { it.enabled }?.let { "at ${minuteLabel(it.minute)}" },
+                modifier = tile,
+            )
+        }
     }
     // The auto sync tile has a second line only while auto sync is on.
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().animateContentSize(tween(MOTION_MS))) {
         // Side by side only while no label has to be cut: narrow screens with large text stack them.
-        if (maxWidth >= STAT_TILE_MIN_WIDTH * 3 * LocalDensity.current.fontScale) {
+        if (maxWidth >= STAT_TILE_MIN_WIDTH * count * LocalDensity.current.fontScale) {
             Row(modifier = Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 tiles(Modifier.weight(1f).fillMaxHeight())
             }

@@ -1,7 +1,7 @@
 package io.github.krax1337.gsync.protocol
 
 /**
- * Feature ids of the Casio "all features" protocol as spoken by the GW-BX5600.
+ * Feature ids of the Casio "all features" protocol.
  *
  * Every request, response and write starts with one of these bytes. Protocol knowledge is ported
  * from izivkov/GShockAPI (Apache-2.0), which in turn builds on Gadgetbridge.
@@ -14,7 +14,11 @@ object Feature {
     const val ALARM = 0x15
     const val ALARMS = 0x16
     const val TIMER = 0x18
+    const val DST_STATE = 0x1D
+    const val ZONE = 0x1E
+    const val CITY_NAME = 0x1F
     const val APP_INFO = 0x22
+    const val HOME_TIME = 0x24
     const val CONDITION = 0x28
     const val ERROR = 0xFF
 }

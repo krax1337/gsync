@@ -19,8 +19,11 @@ import io.github.krax1337.gsync.ble.LinkLostException
 import io.github.krax1337.gsync.protocol.AlarmSet
 import io.github.krax1337.gsync.protocol.AutoSync
 import io.github.krax1337.gsync.protocol.ProtocolException
+import io.github.krax1337.gsync.protocol.Support
 import io.github.krax1337.gsync.protocol.Trigger
+import io.github.krax1337.gsync.protocol.WatchProfiles
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.protocol.toHex
 import io.github.krax1337.gsync.sync.PhoneFinder
 import io.github.krax1337.gsync.time.NetworkClock
 import kotlinx.coroutines.CancellationException
@@ -54,11 +57,11 @@ import java.io.IOException
 import java.time.ZoneId
 
 /**
- * Owns the watch: listens for it, serves each connection, and keeps what the UI shows.
+ * Owns the paired watches: listens for them, serves each connection, and keeps what the UI shows.
  *
- * The watch is a peripheral that advertises only when it wants to talk (four times a day, or on a
+ * A watch is a peripheral that advertises only when it wants to talk (four times a day, or on a
  * button press), and only for a short while. [run] keeps a filtered scan going and connects the
- * moment the watch shows up.
+ * moment one of them shows up. One watch is served at a time.
  */
 @SuppressLint("MissingPermission") // run() and discover() are only reached once Bluetooth permissions are granted.
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,19 +72,19 @@ class WatchManager(private val context: Context) : WatchActions {
     private val adapter: BluetoothAdapter? = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val finder = PhoneFinder(context)
 
-    private val link = MutableStateFlow(LinkState.WAITING)
+    private val link = MutableStateFlow(Link())
     private val bluetoothOn = MutableStateFlow(adapter?.isEnabled == true)
-    private val error = MutableStateFlow<String?>(null)
+    private val error = MutableStateFlow<Problem?>(null)
     private val reference = MutableStateFlow(ReferenceClock())
     private val uiVisible = MutableStateFlow(false)
 
-    /** Set while the watch stays connected after its initial exchange. */
+    /** Set while a watch stays connected after its initial exchange. */
     @Volatile
     private var connected: Connected? = null
     private val exchange = Mutex()
     private var lastScanStartMs = -SCAN_SPACING_MS
 
-    private class Connected(val gatt: GattLink, val session: WatchSession)
+    private class Connected(val address: String, val gatt: GattLink, val session: WatchSession)
 
     val state: StateFlow<WatchState> =
         combine(store.saved, combine(link, bluetoothOn, error, reference, finder.ringing, ::Live), ::toState)
@@ -109,22 +112,25 @@ class WatchManager(private val context: Context) : WatchActions {
         if (visible) scope.launch { refreshClock() }
     }
 
-    /** Serves the paired watch until cancelled. Returns when no watch is paired. */
+    /** Serves the paired watches until cancelled. Returns when no watch is paired. */
     suspend fun run() {
         val adapter = adapter ?: return
-        store.saved.map { it.watch?.address }
+        store.saved.map { saved -> saved.watches.map { it.watch.address } }
             .distinctUntilChanged()
-            .transformLatest { address -> if (address == null) emit(Unit) else serve(adapter, address) }
+            .transformLatest { addresses -> if (addresses.isEmpty()) emit(Unit) else serve(adapter, addresses) }
             .first()
     }
 
     /** Completes without a result when Bluetooth is off or refuses to scan. */
     override fun discover(): Flow<Watch> = callbackFlow {
+        val paired = state.value.watches.mapTo(HashSet()) { it.address }
         val scanner = adapter?.bluetoothLeScanner
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val name = result.scanRecord?.deviceName ?: result.device.name ?: return
-                if (name.startsWith("CASIO", ignoreCase = true)) trySend(Watch(result.device.address, name))
+                if (name.startsWith("CASIO", ignoreCase = true) && result.device.address !in paired) {
+                    trySend(Watch(result.device.address, name))
+                }
             }
 
             override fun onScanFailed(errorCode: Int) {
@@ -135,20 +141,30 @@ class WatchManager(private val context: Context) : WatchActions {
         awaitClose { runCatching { scanner?.stopScan(callback) } }
     }
 
-    override fun pair(watch: Watch) =
-        edit { Saved(watch = watch, fineAdjustMs = it.fineAdjustMs, phoneFinderEnabled = it.phoneFinderEnabled) }
+    override fun pair(watch: Watch) = edit { saved ->
+        when {
+            saved.watch(watch.address) != null -> saved.copy(selected = watch.address)
+            WatchProfiles.of(watch.name).support == Support.UNSUPPORTED -> saved
+            else -> saved.copy(watches = saved.watches + SavedWatch(watch), selected = watch.address)
+        }
+    }
 
-    override fun unpair() = edit { Saved() }
+    override fun unpair() = edit { saved ->
+        val address = saved.current?.watch?.address
+        saved.copy(watches = saved.watches.filter { it.watch.address != address }, selected = null)
+    }
 
-    override fun setAlarms(alarms: AlarmSet) = edit { it.copy(alarms = alarms, alarmsPending = true) }
+    override fun select(address: String) = edit { it.copy(selected = address) }
 
-    override fun setTimer(seconds: Int) = edit { it.copy(timerSeconds = seconds, timerPending = true) }
+    override fun setAlarms(alarms: AlarmSet) = editCurrent { it.copy(alarms = alarms, alarmsPending = true) }
 
-    override fun setSettings(settings: WatchSettings) = edit { it.copy(settings = settings, settingsPending = true) }
+    override fun setTimer(seconds: Int) = editCurrent { it.copy(timerSeconds = seconds, timerPending = true) }
 
-    override fun setAutoSync(autoSync: AutoSync) = edit { it.copy(autoSync = autoSync, autoSyncPending = true) }
+    override fun setSettings(settings: WatchSettings) = editCurrent { it.copy(settings = settings, settingsPending = true) }
 
-    override fun setFineAdjust(ms: Int) = edit { it.copy(fineAdjustMs = ms) }
+    override fun setAutoSync(autoSync: AutoSync) = editCurrent { it.copy(autoSync = autoSync, autoSyncPending = true) }
+
+    override fun setFineAdjust(ms: Int) = editCurrent { it.copy(fineAdjustMs = ms) }
 
     override fun setPhoneFinderEnabled(enabled: Boolean) {
         if (!enabled) finder.stop()
@@ -158,9 +174,9 @@ class WatchManager(private val context: Context) : WatchActions {
     override fun stopFinder() = finder.stop()
 
     override fun syncNow() {
-        whileConnected { session ->
+        whileConnected { peer ->
             refreshClock()
-            syncTime(session, Trigger.CONNECT)
+            syncTime(peer, Trigger.CONNECT)
         }
     }
 
@@ -177,7 +193,7 @@ class WatchManager(private val context: Context) : WatchActions {
         connected?.gatt?.disconnect()
     }
 
-    /** Persists an edit, then writes it to the watch if one is connected. */
+    /** Persists an edit, then writes it to the watch if that one is connected. */
     private fun edit(transform: (Saved) -> Saved) {
         scope.launch {
             store.update(transform)
@@ -185,54 +201,58 @@ class WatchManager(private val context: Context) : WatchActions {
         }
     }
 
-    private fun whileConnected(block: suspend (WatchSession) -> Unit) = scope.launch {
+    /** An edit of the watch on screen. */
+    private fun editCurrent(transform: (SavedWatch) -> SavedWatch) =
+        edit { saved -> saved.with(saved.current?.watch?.address, transform) }
+
+    private fun whileConnected(block: suspend (Connected) -> Unit) = scope.launch {
         exchange.withLock {
-            val session = connected?.session ?: return@launch
+            val peer = connected ?: return@launch
             try {
-                block(session)
+                block(peer)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error.value = e.message
+                error.value = Problem(peer.address, e.message)
             }
         }
     }
 
-    private suspend fun serve(adapter: BluetoothAdapter, address: String): Nothing {
-        val device = adapter.getRemoteDevice(address)
+    private suspend fun serve(adapter: BluetoothAdapter, addresses: List<String>): Nothing {
         while (true) {
+            var address: String? = null
             try {
-                awaitAdvertisement(adapter, address)
-                link.value = LinkState.CONNECTING
-                connect(device)
+                address = awaitAdvertisement(adapter, addresses)
+                link.value = Link(address, LinkState.CONNECTING)
+                connect(adapter.getRemoteDevice(address))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error.value = e.message
+                error.value = Problem(address, e.message)
             }
         }
     }
 
-    private suspend fun awaitAdvertisement(adapter: BluetoothAdapter, address: String) {
+    /** Returns the address of the first of [addresses] that advertises. */
+    private suspend fun awaitAdvertisement(adapter: BluetoothAdapter, addresses: List<String>): String =
         combine(bluetoothOn, uiVisible, ::Pair)
             .mapLatest { (on, visible) ->
                 if (!on) awaitCancellation()
-                link.value = LinkState.WAITING
+                link.value = Link()
                 // A filtered low-power scan keeps running with the screen off. While the app is
                 // open, scan continuously so a button press connects at once.
-                scanFor(adapter, address, if (visible) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER)
+                scanFor(adapter, addresses, if (visible) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER)
             }
             .first()
-    }
 
-    private suspend fun scanFor(adapter: BluetoothAdapter, address: String, mode: Int) {
+    private suspend fun scanFor(adapter: BluetoothAdapter, addresses: List<String>, mode: Int): String {
         // Android silently ignores an app that starts more than five scans in 30 seconds.
         delay(lastScanStartMs + SCAN_SPACING_MS - SystemClock.elapsedRealtime())
         val scanner = adapter.bluetoothLeScanner ?: awaitCancellation()
-        val found = CompletableDeferred<Unit>()
+        val found = CompletableDeferred<String>()
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                found.complete(Unit)
+                found.complete(result.device.address)
             }
 
             override fun onScanFailed(errorCode: Int) {
@@ -241,12 +261,12 @@ class WatchManager(private val context: Context) : WatchActions {
         }
         lastScanStartMs = SystemClock.elapsedRealtime()
         scanner.startScan(
-            listOf(ScanFilter.Builder().setDeviceAddress(address).build()),
+            addresses.map { ScanFilter.Builder().setDeviceAddress(it).build() },
             ScanSettings.Builder().setScanMode(mode).build(),
             callback,
         )
         try {
-            found.await()
+            return found.await()
         } finally {
             runCatching { scanner.stopScan(callback) }
         }
@@ -261,22 +281,23 @@ class WatchManager(private val context: Context) : WatchActions {
         var gatt: GattLink? = null
         try {
             gatt = GattLink.open(context, device)
-            val session = WatchSession(gatt, SystemClock::elapsedRealtime)
-            link.value = LinkState.SYNCING
+            val profile = WatchProfiles.of(store.saved.first().watch(device.address)?.watch?.name.orEmpty())
+            val peer = Connected(device.address, gatt, WatchSession(gatt, profile, SystemClock::elapsedRealtime))
+            link.value = Link(peer.address, LinkState.SYNCING)
             var ringingSinceMs: Long? = null
             val trigger = exchange.withLock {
-                val trigger = session.hello()
+                val trigger = peer.session.hello()
                 error.value = null
                 if (trigger == Trigger.FIND_PHONE && store.saved.first().phoneFinderEnabled) {
-                    ring()
+                    ring(peer)
                     if (finder.ringing.value) ringingSinceMs = SystemClock.elapsedRealtime()
                 }
                 // Edits first: the watch may hang up as soon as an automatic sync has its time.
-                pushPending(session)
+                pushPending(peer)
                 withTimeoutOrNull(NTP_WAIT_MS) { ntp.await() }
-                syncTime(session, trigger)
+                syncTime(peer, trigger)
                 try {
-                    pull(session)
+                    pull(peer)
                 } catch (_: LinkLostException) {
                     // The time is set; whatever was not read is still current from last time.
                 }
@@ -285,8 +306,8 @@ class WatchManager(private val context: Context) : WatchActions {
             val ringingSince = ringingSinceMs
             when {
                 trigger.staysConnected -> {
-                    connected = Connected(gatt, session)
-                    link.value = LinkState.CONNECTED
+                    connected = peer
+                    link.value = Link(peer.address, LinkState.CONNECTED)
                     if (wakeLock.isHeld) wakeLock.release()
                     whileConnected { pushPending(it) } // Edits made during the exchange above.
                     gatt.awaitLost()
@@ -307,85 +328,97 @@ class WatchManager(private val context: Context) : WatchActions {
         }
     }
 
-    private suspend fun syncTime(session: WatchSession, trigger: Trigger) {
-        val adjust = store.saved.first().fineAdjustMs
+    private suspend fun syncTime(peer: Connected, trigger: Trigger) {
+        val adjust = store.saved.first().watch(peer.address)?.fineAdjustMs ?: 0
         val zone = ZoneId.systemDefault()
-        val setTo = session.syncTime(zone) { clock.now().epochMs + adjust }
+        val sync = peer.session.syncTime(zone) { clock.now().epochMs + adjust }
         val reading = clock.now()
         val record = SyncRecord(
-            atMs = setTo - adjust,
+            atMs = sync.setToMs - adjust,
             trigger = trigger,
             source = if (reading.sample != null) ClockSource.NTP else ClockSource.PHONE,
             ntpRoundTripMs = reading.sample?.roundTripMs?.toInt() ?: 0,
             phoneClockErrorMs = if (reading.sample != null) System.currentTimeMillis() - reading.epochMs else 0,
             zone = zone.id,
         )
-        store.update { it.copy(lastSync = record) }
+        update(peer) { watch ->
+            watch.copy(
+                lastSync = record,
+                homeCity = sync.cityNames[0],
+                worldCities = sync.cityNames.filterKeys { it != 0 }.toSortedMap().values.toList(),
+                syncData = sync.read.map { (label, bytes) -> "$label ${bytes.toHex()}" },
+            )
+        }
     }
 
     /**
      * Writes edits made since the last connection. An edit made meanwhile stays pending, and so
      * does one the watch refuses: it is reported and must not keep the time from being set.
      */
-    private suspend fun pushPending(session: WatchSession) {
-        val saved = store.saved.first()
-        if (saved.alarmsPending && saved.alarms != null) optional {
+    private suspend fun pushPending(peer: Connected) {
+        val saved = store.saved.first().watch(peer.address) ?: return
+        val session = peer.session
+        if (saved.alarmsPending && saved.alarms != null) optional(peer) {
             session.writeAlarms(saved.alarms)
-            store.update { if (it.alarms == saved.alarms) it.copy(alarmsPending = false) else it }
+            update(peer) { if (it.alarms == saved.alarms) it.copy(alarmsPending = false) else it }
         }
-        if (saved.timerPending && saved.timerSeconds != null) optional {
+        if (saved.timerPending && saved.timerSeconds != null) optional(peer) {
             session.writeTimer(saved.timerSeconds)
-            store.update { if (it.timerSeconds == saved.timerSeconds) it.copy(timerPending = false) else it }
+            update(peer) { if (it.timerSeconds == saved.timerSeconds) it.copy(timerPending = false) else it }
         }
-        if (saved.settingsPending && saved.settings != null) optional {
+        if (saved.settingsPending && saved.settings != null) optional(peer) {
             session.writeSettings(saved.settings)
-            store.update { if (it.settings == saved.settings) it.copy(settingsPending = false) else it }
+            update(peer) { if (it.settings == saved.settings) it.copy(settingsPending = false) else it }
         }
-        if (saved.autoSyncPending && saved.autoSync != null) optional {
+        if (saved.autoSyncPending && saved.autoSync != null) optional(peer) {
             session.writeAutoSync(saved.autoSync)
-            store.update { if (it.autoSync == saved.autoSync) it.copy(autoSyncPending = false) else it }
+            update(peer) { if (it.autoSync == saved.autoSync) it.copy(autoSyncPending = false) else it }
         }
     }
 
     /** Reads what can change on the watch itself. Values with an unsent edit are left alone. */
-    private suspend fun pull(session: WatchSession) {
-        optional {
+    private suspend fun pull(peer: Connected) {
+        val session = peer.session
+        optional(peer) {
             val condition = session.readCondition()
-            store.update { it.copy(batteryPercent = condition.batteryPercent, temperatureC = condition.temperatureC) }
+            update(peer) { it.copy(batteryPercent = condition.batteryPercent, temperatureC = condition.temperatureC) }
         }
-        optional {
+        optional(peer) {
             val alarms = session.readAlarms()
-            store.update { if (it.alarmsPending) it else it.copy(alarms = alarms) }
+            update(peer) { if (it.alarmsPending) it else it.copy(alarms = alarms) }
         }
-        optional {
+        optional(peer) {
             val timer = session.readTimer()
-            store.update { if (it.timerPending) it else it.copy(timerSeconds = timer) }
+            update(peer) { if (it.timerPending) it else it.copy(timerSeconds = timer) }
         }
-        optional {
+        optional(peer) {
             val settings = session.readSettings()
-            store.update { if (it.settingsPending) it else it.copy(settings = settings) }
+            update(peer) { if (it.settingsPending) it else it.copy(settings = settings) }
         }
-        optional {
+        optional(peer) {
             val autoSync = session.readAutoSync()
-            store.update { if (it.autoSyncPending) it else it.copy(autoSync = autoSync) }
+            update(peer) { if (it.autoSyncPending) it else it.copy(autoSync = autoSync) }
         }
     }
 
+    private suspend fun update(peer: Connected, transform: (SavedWatch) -> SavedWatch) =
+        store.update { it.with(peer.address, transform) }
+
     /** One part of an exchange that the rest does not depend on: a refusal is shown, not thrown. */
-    private suspend fun optional(part: suspend () -> Unit) {
+    private suspend fun optional(peer: Connected, part: suspend () -> Unit) {
         try {
             part()
         } catch (e: ProtocolException) {
-            error.value = e.message
+            error.value = Problem(peer.address, e.message)
         }
     }
 
     /** Starts the phone finder tone. A phone that cannot play it says so instead of failing the sync. */
-    private fun ring() {
+    private fun ring(peer: Connected) {
         try {
             finder.start()
         } catch (e: Exception) {
-            error.value = "Phone finder could not ring: ${e.message}"
+            error.value = Problem(peer.address, "Phone finder could not ring: ${e.message}")
         }
     }
 
@@ -403,29 +436,49 @@ class WatchManager(private val context: Context) : WatchActions {
     }
 }
 
+/** Which watch the radio is busy with, if any, and how far that has got. */
+private data class Link(val address: String? = null, val state: LinkState = LinkState.WAITING)
+
+/** Something that went wrong, and with which watch; without an address it concerns all of them. */
+private data class Problem(val address: String?, val message: String?)
+
 /** The part of the state that is not stored: it describes this moment. */
 private data class Live(
-    val link: LinkState,
+    val link: Link,
     val bluetoothOn: Boolean,
-    val error: String?,
+    val error: Problem?,
     val clock: ReferenceClock,
     val finderRinging: Boolean,
 )
 
-private fun toState(saved: Saved, live: Live) = WatchState(
-    watch = saved.watch,
-    link = if (live.bluetoothOn) live.link else LinkState.BLUETOOTH_OFF,
-    clock = live.clock,
-    batteryPercent = saved.batteryPercent,
-    temperatureC = saved.temperatureC,
-    lastSync = saved.lastSync,
-    lastError = live.error,
-    alarms = saved.alarms,
-    timerSeconds = saved.timerSeconds,
-    settings = saved.settings,
-    autoSync = saved.autoSync,
-    pendingWrites = saved.alarmsPending || saved.timerPending || saved.settingsPending || saved.autoSyncPending,
-    fineAdjustMs = saved.fineAdjustMs,
-    phoneFinderEnabled = saved.phoneFinderEnabled,
-    finderRinging = live.finderRinging,
-)
+private fun toState(saved: Saved, live: Live): WatchState {
+    val current = saved.current
+    val address = current?.watch?.address
+    return WatchState(
+        watches = saved.watches.map { it.watch },
+        watch = current?.watch,
+        profile = current?.let { WatchProfiles.of(it.watch.name) },
+        link = when {
+            !live.bluetoothOn -> LinkState.BLUETOOTH_OFF
+            live.link.address == address -> live.link.state
+            else -> LinkState.WAITING
+        },
+        clock = live.clock,
+        batteryPercent = current?.batteryPercent,
+        temperatureC = current?.temperatureC,
+        lastSync = current?.lastSync,
+        lastError = live.error?.takeIf { it.address == null || it.address == address }?.message,
+        alarms = current?.alarms,
+        timerSeconds = current?.timerSeconds,
+        settings = current?.settings,
+        autoSync = current?.autoSync,
+        pendingWrites = current != null &&
+            (current.alarmsPending || current.timerPending || current.settingsPending || current.autoSyncPending),
+        fineAdjustMs = current?.fineAdjustMs ?: 0,
+        homeCity = current?.homeCity,
+        worldCities = current?.worldCities.orEmpty(),
+        diagnostics = current?.syncData?.takeIf { it.isNotEmpty() }?.let { (listOf(current.watch.name) + it).joinToString("\n") },
+        phoneFinderEnabled = saved.phoneFinderEnabled,
+        finderRinging = live.finderRinging,
+    )
+}

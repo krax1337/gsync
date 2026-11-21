@@ -32,6 +32,7 @@ class LinkLostException(message: String) : IOException(message)
  * - features: requests go to one characteristic, the answer is a notification on the other, which
  *   also takes the writes;
  * - clock blocks: the same arrangement for the large time tables, whose answers arrive in pieces.
+ *   Only watches that keep their clock in blocks have this pair; the others are served without it.
  *
  * One operation is in flight at a time.
  */
@@ -40,8 +41,8 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
     private lateinit var gatt: BluetoothGatt
     private lateinit var requestChar: BluetoothGattCharacteristic
     private lateinit var featureChar: BluetoothGattCharacteristic
-    private lateinit var blockRequestChar: BluetoothGattCharacteristic
-    private lateinit var blockChar: BluetoothGattCharacteristic
+    private var blockRequestChar: BluetoothGattCharacteristic? = null
+    private var blockChar: BluetoothGattCharacteristic? = null
 
     private val ready = CompletableDeferred<Unit>()
     private val lost = CompletableDeferred<String>()
@@ -66,8 +67,9 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
     }
 
     override suspend fun requestBlock(request: ByteArray, size: Int): ByteArray = operation.withLock {
+        val characteristic = blockRequestChar ?: throw ProtocolException(NO_BLOCKS)
         blockPieces.drain()
-        send(blockRequestChar, request, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+        send(characteristic, request, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
         withTimeoutOrNull(BLOCK_TIMEOUT_MS) {
             var block = ByteArray(0)
             while (block.size < size) block += blockPieces.receive()
@@ -76,7 +78,7 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
     }
 
     override suspend fun writeBlock(block: ByteArray) = operation.withLock {
-        send(blockChar, block, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        send(blockChar ?: throw ProtocolException(NO_BLOCKS), block, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
     }
 
     /** Suspends until the connection ends and returns why. */
@@ -147,20 +149,15 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
             val service = gatt.getService(SERVICE)
             val request = service?.getCharacteristic(REQUEST)
             val feature = service?.getCharacteristic(FEATURE)
-            val blockRequest = service?.getCharacteristic(BLOCK_REQUEST)
-            val block = service?.getCharacteristic(BLOCK)
             if (status != BluetoothGatt.GATT_SUCCESS || request == null || feature == null) {
                 return fail("Not a supported Casio watch (status $status)")
             }
-            if (blockRequest == null || block == null) {
-                return fail("This watch is not a GW-BX5600: it has no clock block characteristics")
-            }
             requestChar = request
             featureChar = feature
-            blockRequestChar = blockRequest
-            blockChar = block
+            blockRequestChar = service.getCharacteristic(BLOCK_REQUEST)
+            blockChar = service.getCharacteristic(BLOCK)
             toSubscribe += feature
-            toSubscribe += block
+            blockChar?.let { toSubscribe += it }
             subscribeNext(gatt)
         }
 
@@ -197,6 +194,7 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         private const val CONNECT_TIMEOUT_MS = 20_000L
         private const val RESPONSE_TIMEOUT_MS = 3_000L
         private const val BLOCK_TIMEOUT_MS = 5_000L
+        private const val NO_BLOCKS = "This watch has no clock block characteristics"
 
         /** Connects to an advertising watch and returns once it is ready for requests. */
         suspend fun open(context: Context, device: BluetoothDevice): GattLink {

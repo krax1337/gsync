@@ -2,6 +2,7 @@ package io.github.krax1337.gsync
 
 import io.github.krax1337.gsync.protocol.ClockBlocks
 import io.github.krax1337.gsync.protocol.Feature
+import io.github.krax1337.gsync.protocol.WatchProfiles
 import io.github.krax1337.gsync.protocol.timeFrame
 import io.github.krax1337.gsync.protocol.toHex
 import io.github.krax1337.gsync.protocol.u
@@ -53,12 +54,12 @@ class SyncTimeTest {
         }
     }
 
-    private fun TestScope.session(watch: FakeWatch) = WatchSession(watch) { currentTime }
+    private fun TestScope.session(watch: FakeWatch) = WatchSession(watch, WatchProfiles.of("CASIO GW-BX5600")) { currentTime }
 
     @Test
     fun `time reaches the watch on a whole second`() = runTest {
         val watch = FakeWatch(this, roundTripMs = 40)
-        val setTo = session(watch).syncTime(zone) { start + currentTime }
+        val setTo = session(watch).syncTime(zone) { start + currentTime }.setToMs
 
         assertEquals(0, setTo % 1000)
         val (sentAt, isBlock, frame) = watch.writes.last()
@@ -129,7 +130,7 @@ class SyncTimeTest {
             if (watch.writes.size >= 3) slip += 370
             start + currentTime + slip
         }
-        val setTo = session(watch).syncTime(zone, now)
+        val setTo = session(watch).syncTime(zone, now).setToMs
 
         val frame = watch.writes.last().third
         assertTrue(setTo % 1000 != 0L)

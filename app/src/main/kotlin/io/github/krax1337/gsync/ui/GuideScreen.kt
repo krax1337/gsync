@@ -13,22 +13,18 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,17 +43,10 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.krax1337.gsync.protocol.WatchCities
-import io.github.krax1337.gsync.protocol.WatchCity
-import java.time.Instant
-import java.time.ZoneId
-import java.util.Locale
-import kotlin.math.abs
 
 /*
  * The four buttons. The guide never names one without saying where it is: the letters are
@@ -74,17 +63,18 @@ private val DIAGRAM_SIZE = 128.dp
 /**
  * How the watch itself is operated, for when it has been a while: the buttons, syncing, cities
  * and what to do when travelling. The facts are those of Casio's operation guide for the watch.
+ * [homeCity] is the city the watch is set to, if that is known.
  */
 @Composable
-internal fun GuideScreen(padding: PaddingValues, onBack: () -> Unit) {
+internal fun GuideScreen(padding: PaddingValues, homeCity: String?, onBack: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-        TopBar(onBack)
+        PageTopBar(title = "Watch guide", onBack = onBack)
         ScreenColumn(PaddingValues(0.dp)) {
             ButtonsSection()
             Gap()
             SyncingSection()
             Gap()
-            HomeCitySection()
+            HomeCitySection(homeCity)
             Gap()
             WorldTimeSection()
             Gap()
@@ -94,26 +84,6 @@ internal fun GuideScreen(padding: PaddingValues, onBack: () -> Unit) {
             Gap()
             CitiesSection()
         }
-    }
-}
-
-/** Stays in place above the scrolling guide. */
-@Composable
-private fun TopBar(onBack: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-        }
-        Text(
-            text = "Watch guide",
-            style = MaterialTheme.typography.titleLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 4.dp).semantics { heading() },
-        )
     }
 }
 
@@ -154,10 +124,10 @@ private fun SyncingSection() {
 }
 
 @Composable
-private fun HomeCitySection() {
+private fun HomeCitySection(homeCity: String?) {
     GuideSection("Home city") {
         Body("G-Sync sets the time. It does not change the city shown on the watch.")
-        PhoneZoneCard()
+        PhoneZoneCard(homeCity)
         Label("To set it")
         Steps(
             "In the timekeeping mode hold $A for 2 seconds until the city name appears.",
@@ -265,18 +235,10 @@ private fun CitiesSection() {
     }
 }
 
-/**
- * Which city to choose on the watch for the zone this phone is in. Read again whenever the app
- * comes back to the front: the phone changes zone while the app is away, on a flight most of all.
- */
+/** Which city to choose on the watch for the zone this phone is in, next to the city it is set to. */
 @Composable
-private fun PhoneZoneCard() {
-    var zone by remember { mutableStateOf(ZoneId.systemDefault()) }
-    LifecycleResumeEffect(Unit) {
-        zone = ZoneId.systemDefault()
-        onPauseOrDispose { }
-    }
-    val phone = remember(zone) { PhoneZone.of(zone, Instant.now()) }
+private fun PhoneZoneCard(homeCity: String?) {
+    val phone = rememberPhoneZone()
 
     Surface(
         modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
@@ -295,6 +257,15 @@ private fun PhoneZoneCard() {
                     text = buildAnnotatedString {
                         append("On the watch choose: ")
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(phone.cities) }
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            if (homeCity != null) {
+                Text(
+                    text = buildAnnotatedString {
+                        append("The watch is set to: ")
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(titleCase(homeCity)) }
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -477,32 +448,6 @@ private fun Label(text: String) {
     )
 }
 
-/** What [PhoneZoneCard] says about a zone. */
-private class PhoneZone(
-    val id: String,
-    /** "UTC+5", or "UTC+1 standard time" while the zone is on summer time. */
-    val offset: String,
-    /** "SIN SINGAPORE, HKG HONG KONG or TPE TAIPEI"; empty when the watch has no city there. */
-    val cities: String,
-) {
-    companion object {
-        fun of(zone: ZoneId, at: Instant): PhoneZone {
-            // Standard time is what the watch's cities are listed by, and what they are matched on.
-            val standard = utcOffsetLabel(zone.rules.getStandardOffset(at).totalSeconds / 60)
-            val labels = WatchCities.matching(zone, at).map { it.label(it.name) }
-            return PhoneZone(
-                id = zone.id,
-                offset = if (zone.rules.isDaylightSavings(at)) "$standard standard time" else standard,
-                cities = if (labels.size < 2) {
-                    labels.joinToString()
-                } else {
-                    labels.dropLast(1).joinToString() + " or " + labels.last()
-                },
-            )
-        }
-    }
-}
-
 /** One line of the city list: every city the watch has on one offset. */
 private class CityLine(val offset: String, val cities: String)
 
@@ -515,25 +460,3 @@ private val CITY_LINES: List<CityLine> by lazy {
         )
     }
 }
-
-/** "KHI KARACHI" for the [name] given; the name alone for the two entries without a code. */
-private fun WatchCity.label(name: String): String = if (code.isEmpty()) name else "$code $name"
-
-/** "UTC+5", "UTC+5:45", "UTC-3:30", and "UTC" for zero. */
-private fun utcOffsetLabel(offsetMinutes: Int): String {
-    if (offsetMinutes == 0) return "UTC"
-    val sign = if (offsetMinutes < 0) '-' else '+'
-    val hours = abs(offsetMinutes) / 60
-    val minutes = abs(offsetMinutes) % 60
-    return if (minutes == 0) "UTC$sign$hours" else "UTC$sign$hours:${TWO_DIGITS[minutes]}"
-}
-
-/** "Rio de Janeiro" from "RIO DE JANEIRO"; "UTC" stays as it is. */
-private fun titleCase(name: String): String =
-    name.split(' ').joinToString(" ") { word ->
-        when (word) {
-            "UTC" -> word
-            "DE" -> "de"
-            else -> word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
-        }
-    }

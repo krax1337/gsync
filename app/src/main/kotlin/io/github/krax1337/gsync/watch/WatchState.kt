@@ -3,6 +3,7 @@ package io.github.krax1337.gsync.watch
 import io.github.krax1337.gsync.protocol.AlarmSet
 import io.github.krax1337.gsync.protocol.AutoSync
 import io.github.krax1337.gsync.protocol.Trigger
+import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.protocol.WatchSettings
 import kotlinx.coroutines.flow.Flow
 
@@ -40,12 +41,18 @@ data class SyncRecord(
 data class ReferenceClock(val offsetMs: Long = 0, val source: ClockSource = ClockSource.PHONE)
 
 /**
- * Everything the UI shows. Alarms, timer, settings and auto sync are the values last read from the
- * watch, or the user's edits while [pendingWrites] is set; they are null until the first connection.
+ * Everything the UI shows. Several watches can be paired; [watch] is the one on screen, and every
+ * field from [link] to [diagnostics] describes that watch. Alarms, timer, settings and auto sync
+ * are the values last read from it, or the user's edits while [pendingWrites] is set; they are null
+ * until the first connection.
  */
 data class WatchState(
-    /** Null while no watch is paired. */
+    /** Every paired watch, in the order they were added. */
+    val watches: List<Watch> = emptyList(),
+    /** The watch on screen. Null while no watch is paired. */
     val watch: Watch? = null,
+    /** What [watch] can do and how far this app is confirmed on its model. Null while no watch is paired. */
+    val profile: WatchProfile? = null,
     val link: LinkState = LinkState.WAITING,
     /** What the watch should be showing; refreshed from the network whenever the app is opened. */
     val clock: ReferenceClock = ReferenceClock(),
@@ -62,6 +69,12 @@ data class WatchState(
     val pendingWrites: Boolean = false,
     /** Added to the time sent to the watch, to calibrate out a constant error. */
     val fineAdjustMs: Int = 0,
+    /** Name of the home city stored on the watch, as read at the last sync. Null if not known. */
+    val homeCity: String? = null,
+    /** Names of the world time cities stored on the watch, as read at the last sync. */
+    val worldCities: List<String> = emptyList(),
+    /** The clock tables the watch sent at the last sync, as text for a bug report. */
+    val diagnostics: String? = null,
     /** Whether holding the watch's lower-right button for five seconds rings this phone. */
     val phoneFinderEnabled: Boolean = true,
     /** The phone is ringing right now because the watch asked for it. */
@@ -70,12 +83,17 @@ data class WatchState(
 
 /** What the UI can ask for. Edits are persisted first and reach the watch at the next opportunity. */
 interface WatchActions {
-    /** Nearby Casio watches that are advertising right now, for pairing. */
+    /** Nearby Casio watches that are advertising right now and not paired yet. */
     fun discover(): Flow<Watch>
 
+    /** Adds [watch] and puts it on screen. */
     fun pair(watch: Watch)
 
+    /** Forgets the watch on screen; another paired watch, if any, takes its place. */
     fun unpair()
+
+    /** Puts another paired watch on screen. */
+    fun select(address: String)
 
     fun setAlarms(alarms: AlarmSet)
 
