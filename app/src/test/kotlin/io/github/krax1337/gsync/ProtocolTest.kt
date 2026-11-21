@@ -74,15 +74,15 @@ class ProtocolTest {
     }
 
     @Test
-    fun `city names are read from the city block whatever pads them`() {
+    fun `the cities of the three clocks are read from the city block, without their codes`() {
         fun record(index: Int, name: String, pad: Int) =
             frameOf(0x14, 0x00, 0x1F, index) + ByteArray(18) { if (it < name.length) name[it].code.toByte() else pad.toByte() }
         val block = frameOf(0x06) +
-            record(0, "KARACHI", 0x00) + record(6, "", 0x00) +
-            record(1, "NEW YORK", 0x20) + record(7, "", 0x20) +
-            record(2, "F. DE NORONHA", 0xFF) + record(8, "", 0xFF)
+            record(0, "KARACHI", 0x00) + record(6, "KHI", 0x00) +
+            record(1, "(UTC)", 0x20) + record(7, "UTC", 0x20) +
+            record(2, "F. DE NORONHA", 0xFF) + record(8, "FEN", 0xFF)
 
-        assertEquals(mapOf(0 to "KARACHI", 1 to "NEW YORK", 2 to "F. DE NORONHA"), ClockBlocks.cityNames(block))
+        assertEquals(mapOf(0 to "KARACHI", 1 to "UTC", 2 to "F. DE NORONHA"), ClockBlocks.cityNames(block))
         // A block that is not laid out as expected shows no city instead of a wrong one.
         assertEquals(emptyMap<Int, String>(), ClockBlocks.cityNames(ByteArray(133) { 0x41 }))
         assertEquals(emptyMap<Int, String>(), ClockBlocks.cityNames(block.copyOf(100)))

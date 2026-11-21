@@ -24,7 +24,7 @@ object ClockBlocks {
     val ZONE_REQUEST: ByteArray = frameOf(0x03, 0x1E, 0x00, 0x1E, 0x00, 0x1E, 0x00)
     const val ZONE_SIZE = 28
 
-    // Six world-time cities, stored as two interleaved runs of three.
+    // The names of the three clocks (0 to 2), each followed by its three-letter code (6 to 8).
     val CITY_REQUEST: ByteArray = frameOf(0x06, 0x1F, 0, 0x1F, 6, 0x1F, 1, 0x1F, 7, 0x1F, 2, 0x1F, 8)
     const val CITY_SIZE = 133
 
@@ -46,20 +46,23 @@ object ClockBlocks {
     fun cityWriteBack(block: ByteArray): ByteArray = block.requireBlock(0x06, CITY_SIZE)
 
     /**
-     * The city names in the city block by index: 0 is the home city, 1 and 2 are the world time
+     * The city names in the city block by clock: 0 is the home city, 1 and 2 are the world time
      * cities.
      *
-     * The layout is inferred from the sizes, not documented: six 22-byte records, each a classic
-     * `1F index name` frame, with or without a two-byte length in front. A record that does not
-     * look like that is left out, so the worst a wrong guess does is show no city.
+     * The block is six 22-byte records, each a classic `1F index name` frame behind a two-byte
+     * length. Records 0 to 2 hold the names, 6 to 8 the three-letter codes of the same cities
+     * (KARACHI and KHI), which are left out here. Read this way on a real GW-BX5600; a block that
+     * does not look like that gives no names rather than wrong ones.
      */
     fun cityNames(block: ByteArray): Map<Int, String> {
         if (block.size != CITY_SIZE) return emptyMap()
         return (1 until CITY_SIZE step CITY_RECORD).mapNotNull { start ->
             val marker = (start..start + 2).firstOrNull { block.u(it) == CITY_NAME } ?: return@mapNotNull null
+            val clock = block.u(marker + 1)
             val text = String(block, marker + 2, start + CITY_RECORD - marker - 2, Charsets.US_ASCII)
-            val name = text.takeWhile { it in ' '..'~' }.trim()
-            if (name.isEmpty()) null else block.u(marker + 1) to name
+            // The watch writes UTC as "(UTC)".
+            val name = text.takeWhile { it in ' '..'~' }.trim().removeSurrounding("(", ")")
+            if (clock >= SLOTS || name.isEmpty()) null else clock to name
         }.toMap()
     }
 

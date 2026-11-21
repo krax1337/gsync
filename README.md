@@ -147,7 +147,6 @@ While a watch is paired, Android shows a permanent "G-Sync" notification. That i
 ## ⚠️ Limitations
 
 - There is no city picker: the home city and the world time cities are set on the watch itself.
-- How the GW-BX5600 stores its city names is inferred, not documented. If they cannot be read, the app simply does not show them.
 - The battery level uses the scale known for each model, which owners have reported as imprecise.
 - Phones with aggressive battery managers (Xiaomi, Huawei, Samsung "sleeping apps") may need G-Sync excluded there too.
 

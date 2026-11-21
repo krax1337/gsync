@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-22
+
+The cities shown from the watch are now confirmed on a real GW-BX5600.
+
+### Fixed
+
+- The world time row listed each city twice, once by name and once by its three-letter code, with the home city's code in between ("(utc), Tokyo, Khi, UTC, Tyo"). It now lists the two world time cities.
+
 ## [0.2.0] - 2026-11-22
 
 ### Added
