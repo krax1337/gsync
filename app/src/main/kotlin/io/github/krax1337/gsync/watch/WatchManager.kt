@@ -21,6 +21,7 @@ import io.github.krax1337.gsync.protocol.AutoSync
 import io.github.krax1337.gsync.protocol.ProtocolException
 import io.github.krax1337.gsync.protocol.Trigger
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.sync.PhoneFinder
 import io.github.krax1337.gsync.time.NetworkClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -66,6 +67,7 @@ class WatchManager(private val context: Context) : WatchActions {
     private val store = WatchStore(context)
     private val clock = NetworkClock(SystemClock::elapsedRealtime, System::currentTimeMillis)
     private val adapter: BluetoothAdapter? = context.getSystemService(BluetoothManager::class.java)?.adapter
+    private val finder = PhoneFinder(context)
 
     private val link = MutableStateFlow(LinkState.WAITING)
     private val bluetoothOn = MutableStateFlow(adapter?.isEnabled == true)
@@ -82,11 +84,14 @@ class WatchManager(private val context: Context) : WatchActions {
     private class Connected(val gatt: GattLink, val session: WatchSession)
 
     val state: StateFlow<WatchState> =
-        combine(store.saved, link, bluetoothOn, error, reference, ::toState)
+        combine(store.saved, combine(link, bluetoothOn, error, reference, finder.ringing, ::Live), ::toState)
             .stateIn(
                 scope,
                 SharingStarted.Eagerly,
-                toState(runBlocking { store.saved.first() }, link.value, bluetoothOn.value, error.value, reference.value),
+                toState(
+                    runBlocking { store.saved.first() },
+                    Live(link.value, bluetoothOn.value, error.value, reference.value, finder.ringing.value),
+                ),
             )
 
     init {
@@ -130,7 +135,8 @@ class WatchManager(private val context: Context) : WatchActions {
         awaitClose { runCatching { scanner?.stopScan(callback) } }
     }
 
-    override fun pair(watch: Watch) = edit { Saved(watch = watch, fineAdjustMs = it.fineAdjustMs) }
+    override fun pair(watch: Watch) =
+        edit { Saved(watch = watch, fineAdjustMs = it.fineAdjustMs, phoneFinderEnabled = it.phoneFinderEnabled) }
 
     override fun unpair() = edit { Saved() }
 
@@ -143,6 +149,13 @@ class WatchManager(private val context: Context) : WatchActions {
     override fun setAutoSync(autoSync: AutoSync) = edit { it.copy(autoSync = autoSync, autoSyncPending = true) }
 
     override fun setFineAdjust(ms: Int) = edit { it.copy(fineAdjustMs = ms) }
+
+    override fun setPhoneFinderEnabled(enabled: Boolean) {
+        if (!enabled) finder.stop()
+        edit { it.copy(phoneFinderEnabled = enabled) }
+    }
+
+    override fun stopFinder() = finder.stop()
 
     override fun syncNow() {
         whileConnected { session ->
@@ -250,9 +263,14 @@ class WatchManager(private val context: Context) : WatchActions {
             gatt = GattLink.open(context, device)
             val session = WatchSession(gatt, SystemClock::elapsedRealtime)
             link.value = LinkState.SYNCING
+            var ringingSinceMs: Long? = null
             val trigger = exchange.withLock {
                 val trigger = session.hello()
                 error.value = null
+                if (trigger == Trigger.FIND_PHONE && store.saved.first().phoneFinderEnabled) {
+                    ring()
+                    if (finder.ringing.value) ringingSinceMs = SystemClock.elapsedRealtime()
+                }
                 // Edits first: the watch may hang up as soon as an automatic sync has its time.
                 pushPending(session)
                 withTimeoutOrNull(NTP_WAIT_MS) { ntp.await() }
@@ -264,14 +282,23 @@ class WatchManager(private val context: Context) : WatchActions {
                 }
                 trigger
             }
-            if (trigger.staysConnected) {
-                connected = Connected(gatt, session)
-                link.value = LinkState.CONNECTED
-                if (wakeLock.isHeld) wakeLock.release()
-                whileConnected { pushPending(it) } // Edits made during the exchange above.
-                gatt.awaitLost()
-            } else {
-                withTimeoutOrNull(HANG_UP_GRACE_MS) { gatt.awaitLost() }
+            val ringingSince = ringingSinceMs
+            when {
+                trigger.staysConnected -> {
+                    connected = Connected(gatt, session)
+                    link.value = LinkState.CONNECTED
+                    if (wakeLock.isHeld) wakeLock.release()
+                    whileConnected { pushPending(it) } // Edits made during the exchange above.
+                    gatt.awaitLost()
+                }
+                ringingSince != null -> {
+                    // During the first 30 seconds any watch button stops the tone: the watch does
+                    // that by dropping the connection. A drop right after the exchange, or when
+                    // those 30 seconds run out, is the watch's own doing and leaves the tone on.
+                    withTimeoutOrNull(FINDER_LINK_MS) { gatt.awaitLost() }
+                    if (SystemClock.elapsedRealtime() - ringingSince in FINDER_BUTTON_WINDOW_MS) finder.stop()
+                }
+                else -> withTimeoutOrNull(HANG_UP_GRACE_MS) { gatt.awaitLost() }
             }
         } finally {
             connected = null
@@ -353,6 +380,15 @@ class WatchManager(private val context: Context) : WatchActions {
         }
     }
 
+    /** Starts the phone finder tone. A phone that cannot play it says so instead of failing the sync. */
+    private fun ring() {
+        try {
+            finder.start()
+        } catch (e: Exception) {
+            error.value = "Phone finder could not ring: ${e.message}"
+        }
+    }
+
     private companion object {
         const val SCAN_SPACING_MS = 6_500L
         const val NTP_WAIT_MS = 2_500L
@@ -360,21 +396,36 @@ class WatchManager(private val context: Context) : WatchActions {
 
         /** How long to let the watch end a one-shot connection itself before hanging up. */
         const val HANG_UP_GRACE_MS = 3_000L
+
+        /** How long the link is kept after a phone finder request, to notice a button press. */
+        const val FINDER_LINK_MS = 35_000L
+        val FINDER_BUTTON_WINDOW_MS = 3_000L..28_000L
     }
 }
 
-private fun toState(saved: Saved, link: LinkState, bluetoothOn: Boolean, error: String?, clock: ReferenceClock) = WatchState(
+/** The part of the state that is not stored: it describes this moment. */
+private data class Live(
+    val link: LinkState,
+    val bluetoothOn: Boolean,
+    val error: String?,
+    val clock: ReferenceClock,
+    val finderRinging: Boolean,
+)
+
+private fun toState(saved: Saved, live: Live) = WatchState(
     watch = saved.watch,
-    link = if (bluetoothOn) link else LinkState.BLUETOOTH_OFF,
-    clock = clock,
+    link = if (live.bluetoothOn) live.link else LinkState.BLUETOOTH_OFF,
+    clock = live.clock,
     batteryPercent = saved.batteryPercent,
     temperatureC = saved.temperatureC,
     lastSync = saved.lastSync,
-    lastError = error,
+    lastError = live.error,
     alarms = saved.alarms,
     timerSeconds = saved.timerSeconds,
     settings = saved.settings,
     autoSync = saved.autoSync,
     pendingWrites = saved.alarmsPending || saved.timerPending || saved.settingsPending || saved.autoSyncPending,
     fineAdjustMs = saved.fineAdjustMs,
+    phoneFinderEnabled = saved.phoneFinderEnabled,
+    finderRinging = live.finderRinging,
 )

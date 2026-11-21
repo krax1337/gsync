@@ -27,8 +27,8 @@ import kotlinx.coroutines.flow.flowOf
  *
  *     adb shell am start -n io.github.krax1337.gsync/.ui.DemoActivity --es screen alarms --ez dark true
  *
- * `screen` is one of pair, pair_noperm, watch, watch_connected, watch_empty, alarms,
- * alarms_pending, settings. Without `dark` the system setting applies.
+ * `screen` is one of pair, pair_noperm, watch, watch_connected, watch_empty, finder, alarms,
+ * alarms_pending, settings, guide. Without `dark` the system setting applies.
  */
 class DemoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,9 +57,10 @@ class DemoActivity : ComponentActivity() {
                     onRequestPermissions = {},
                     initialTab = when (screen) {
                         "alarms", "alarms_pending" -> Tab.ALARMS
-                        "settings" -> Tab.SETTINGS
+                        "settings", "guide" -> Tab.SETTINGS
                         else -> Tab.WATCH
                     },
+                    initialGuideOpen = screen == "guide",
                 )
             }
         }
@@ -115,6 +116,7 @@ private fun sampleState(screen: String): WatchState {
         "pair", "pair_noperm" -> WatchState()
         "watch_connected" -> synced.copy(link = LinkState.CONNECTED)
         "watch_empty" -> WatchState(watch = SAMPLE_WATCH)
+        "finder" -> synced.copy(finderRinging = true)
         "alarms_pending" -> synced.copy(pendingWrites = true)
         else -> synced
     }
@@ -137,6 +139,10 @@ private object DemoActions : WatchActions {
     override fun setAutoSync(autoSync: AutoSync) = Unit
 
     override fun setFineAdjust(ms: Int) = Unit
+
+    override fun setPhoneFinderEnabled(enabled: Boolean) = Unit
+
+    override fun stopFinder() = Unit
 
     override fun syncNow() = Unit
 

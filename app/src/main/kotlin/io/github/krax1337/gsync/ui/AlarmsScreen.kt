@@ -66,6 +66,10 @@ private val TIMER_PRESETS = listOf(60, 180, 300, 600, 900, 1800, 3600)
 /** The watch counts down from 1 second to 24 hours. */
 private const val TIMER_MAX_SECONDS = 24 * 60 * 60
 
+/** The last alarm is the watch's snooze alarm. */
+private const val SNOOZE_INDEX = AlarmSet.COUNT - 1
+private const val SNOOZE_NOTE = "repeats every 5 min, up to 7 times"
+
 @Composable
 internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: PaddingValues) {
     val alarms = state.alarms
@@ -93,6 +97,7 @@ internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: Pad
                         if (index > 0) RowDivider()
                         AlarmRow(
                             label = alarmLabel(index),
+                            enabledNote = SNOOZE_NOTE.takeIf { index == SNOOZE_INDEX },
                             alarm = alarm,
                             is24Hour = is24Hour,
                             nowMinute = nowMinute,
@@ -147,10 +152,12 @@ internal fun AlarmsScreen(state: WatchState, actions: WatchActions, padding: Pad
 /**
  * Two touch targets side by side: the time opens the picker, the end of the row is the switch.
  * [nowMinute] is read here, so the minute tick redraws the rows and not the screen.
+ * [enabledNote] follows the time left on the second line while the alarm is on.
  */
 @Composable
 private fun AlarmRow(
     label: String,
+    enabledNote: String?,
     alarm: Alarm,
     is24Hour: Boolean,
     nowMinute: LongState,
@@ -165,7 +172,13 @@ private fun AlarmRow(
         label = "alarm time",
     )
     val minute = nowMinute.longValue
-    val status = remember(alarm, minute) { if (alarm.enabled) ringsIn(alarm, minute) else "Off" }
+    val status = remember(alarm, minute, enabledNote) {
+        if (alarm.enabled) {
+            listOfNotNull(ringsIn(alarm, minute), enabledNote).joinToString(" · ").ifEmpty { null }
+        } else {
+            "Off"
+        }
+    }
 
     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Column(
@@ -232,6 +245,12 @@ private fun TimerSection(seconds: Int, onSet: (Int) -> Unit, onCustom: () -> Uni
                 text = "The countdown on the watch starts from here",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "The watch does not sync while the timer is counting down.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
             FlowRow(
                 modifier = Modifier.padding(top = 8.dp),
@@ -411,7 +430,7 @@ private fun AlarmTimeDialog(
     }
 }
 
-private fun alarmLabel(index: Int): String = "Alarm ${index + 1}"
+private fun alarmLabel(index: Int): String = if (index == SNOOZE_INDEX) "Snooze alarm" else "Alarm ${index + 1}"
 
 private fun AlarmSet.with(index: Int, alarm: Alarm): AlarmSet =
     copy(alarms = alarms.mapIndexed { i, current -> if (i == index) alarm else current })

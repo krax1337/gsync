@@ -22,7 +22,7 @@ Check a download before installing it:
 
 ```sh
 sha256sum --check SHA256SUMS                    # the file is the one the workflow published
-apksigner verify --print-certs gsync-0.1.0.apk  # "certificate SHA-256 digest" must match the fingerprint above
+apksigner verify --print-certs gsync-<version>.apk  # "certificate SHA-256 digest" must match the fingerprint above
 ```
 
 Android itself refuses an update that is not signed with the key of the installed app.

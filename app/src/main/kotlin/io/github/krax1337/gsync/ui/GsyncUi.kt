@@ -5,8 +5,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -20,7 +26,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import io.github.krax1337.gsync.watch.Watch
 import io.github.krax1337.gsync.watch.WatchActions
 import io.github.krax1337.gsync.watch.WatchState
@@ -43,7 +52,8 @@ private const val TAB_FADE_MS = 150
 
 /**
  * The whole app. Everything shown comes from [state] and every change goes through [actions]:
- * the pairing screen while no watch is paired, the three tabs afterwards.
+ * the pairing screen while no watch is paired, the three tabs afterwards. [initialGuideOpen]
+ * starts the Settings tab on the watch guide.
  */
 @Composable
 fun GsyncUi(
@@ -52,12 +62,13 @@ fun GsyncUi(
     permissionsGranted: Boolean,
     onRequestPermissions: () -> Unit,
     initialTab: Tab = Tab.WATCH,
+    initialGuideOpen: Boolean = false,
 ) {
     val watch = state.watch
     if (watch == null) {
         PairScreen(state, actions, permissionsGranted, onRequestPermissions)
     } else {
-        Tabs(state, watch, actions, permissionsGranted, onRequestPermissions, initialTab)
+        Tabs(state, watch, actions, permissionsGranted, onRequestPermissions, initialTab, initialGuideOpen)
     }
 }
 
@@ -69,12 +80,31 @@ private fun Tabs(
     permissionsGranted: Boolean,
     onRequestPermissions: () -> Unit,
     initialTab: Tab,
+    initialGuideOpen: Boolean,
 ) {
     var tab by rememberSaveable { mutableStateOf(initialTab) }
+    // Lives here and not in the Settings tab, because the Watch tab opens the guide as well.
+    var guideOpen by rememberSaveable { mutableStateOf(initialGuideOpen) }
     // Keeps each tab's scroll position while another tab is shown.
     val tabStates = rememberSaveableStateHolder()
 
     Scaffold(
+        topBar = {
+            // Always as tall as the status bar, so the tab below keeps its place while the phone
+            // finder banner comes and goes.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(ScreenInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Reveal(visible = state.finderRinging, gap = 8.dp) {
+                    Box(Modifier.widthIn(max = 600.dp).padding(horizontal = 16.dp)) {
+                        FinderBanner(onStop = actions::stopFinder)
+                    }
+                }
+            }
+        },
         bottomBar = {
             NavigationBar(
                 windowInsets = ScreenInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
@@ -98,9 +128,27 @@ private fun Tabs(
         ) { shown ->
             tabStates.SaveableStateProvider(shown) {
                 when (shown) {
-                    Tab.WATCH -> WatchScreen(state, watch, actions, permissionsGranted, onRequestPermissions, padding)
+                    Tab.WATCH -> WatchScreen(
+                        state = state,
+                        watch = watch,
+                        actions = actions,
+                        permissionsGranted = permissionsGranted,
+                        onRequestPermissions = onRequestPermissions,
+                        padding = padding,
+                        onOpenGuide = {
+                            guideOpen = true
+                            tab = Tab.SETTINGS
+                        },
+                    )
                     Tab.ALARMS -> AlarmsScreen(state, actions, padding)
-                    Tab.SETTINGS -> SettingsScreen(state, watch, actions, padding)
+                    Tab.SETTINGS -> SettingsScreen(
+                        state = state,
+                        watch = watch,
+                        actions = actions,
+                        padding = padding,
+                        guideOpen = guideOpen,
+                        onGuideOpenChange = { guideOpen = it },
+                    )
                 }
             }
         }

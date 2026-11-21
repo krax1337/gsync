@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,17 +32,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,8 +60,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.node.Ref
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -138,15 +145,20 @@ internal val ScreenInsets: WindowInsets
 
 /**
  * Scrolling screen body: 16dp padding, capped width on large screens. Blocks are separated with
- * [Gap]; optional ones go in [Reveal], which brings its own gap.
+ * [Gap]; optional ones go in [Reveal], which brings its own gap. A caller that takes the body out
+ * of the composition and brings it back passes its own [scrollState] to keep the position.
  */
 @Composable
-internal fun ScreenColumn(padding: PaddingValues, content: @Composable ColumnScope.() -> Unit) {
+internal fun ScreenColumn(
+    padding: PaddingValues,
+    scrollState: ScrollState = rememberScrollState(),
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(scrollState),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
@@ -330,7 +342,7 @@ internal fun ErrorBanner(message: String) {
 
 /** How to make the watch connect; shown wherever the app is waiting for it. */
 @Composable
-internal fun ConnectHint() {
+internal fun ConnectHint(onOpenGuide: () -> Unit) {
     Banner(
         text = "Press the lower-right button on the watch to sync now. " +
             "Hold the lower-left button for 3 seconds to stay connected.",
@@ -338,9 +350,12 @@ internal fun ConnectHint() {
         color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        actionLabel = "Watch guide",
+        onAction = onOpenGuide,
     )
 }
 
+/** With an [actionLabel] the banner ends in a text button that calls [onAction]. */
 @Composable
 private fun Banner(
     text: String,
@@ -348,6 +363,8 @@ private fun Banner(
     color: Color,
     contentColor: Color = contentColorFor(color),
     border: BorderStroke? = null,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -356,9 +373,83 @@ private fun Banner(
         contentColor = contentColor,
         border = border,
     ) {
-        Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text(text = text, style = MaterialTheme.typography.bodyMedium)
+        Column {
+            Row(
+                modifier = Modifier.padding(
+                    start = 16.dp,
+                    top = 16.dp,
+                    end = 16.dp,
+                    bottom = if (actionLabel == null) 16.dp else 0.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Text(text = text, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (actionLabel != null) {
+                TextButton(
+                    onClick = onAction,
+                    modifier = Modifier.align(Alignment.End).padding(end = 8.dp, bottom = 4.dp),
+                ) {
+                    Text(actionLabel)
+                }
+            }
         }
+    }
+}
+
+/**
+ * The watch is ringing this phone. Shown above every tab until the tone stops, with the one
+ * control that matters large enough to hit without looking.
+ */
+@Composable
+internal fun FinderBanner(onStop: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    Surface(
+        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Assertive },
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Phone finder",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(text = "The watch is looking for this phone.", style = MaterialTheme.typography.bodyMedium)
+            }
+            Button(
+                onClick = {
+                    haptics.confirm()
+                    onStop()
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            ) {
+                Text(text = "Stop", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+/** One numbered step of an instruction. */
+@Composable
+internal fun Step(number: Int, text: String) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(24.dp).background(scheme.secondaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = number.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSecondaryContainer,
+            )
+        }
+        Text(text = text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
     }
 }

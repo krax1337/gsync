@@ -10,6 +10,7 @@ import io.github.krax1337.gsync.protocol.Language
 import io.github.krax1337.gsync.protocol.ProtocolException
 import io.github.krax1337.gsync.protocol.Timer
 import io.github.krax1337.gsync.protocol.Trigger
+import io.github.krax1337.gsync.protocol.WatchCities
 import io.github.krax1337.gsync.protocol.WatchSettings
 import io.github.krax1337.gsync.protocol.hexToFrame
 import io.github.krax1337.gsync.protocol.timeFrame
@@ -152,5 +153,23 @@ class ProtocolTest {
         assertEquals(Condition(batteryPercent = 100, temperatureC = 27), Condition.decode("28181B00".hexToFrame()))
         assertEquals(Condition(batteryPercent = 50, temperatureC = -3), Condition.decode("2813FD00".hexToFrame()))
         assertEquals(0, Condition.decode("280A1B00".hexToFrame()).batteryPercent)
+    }
+
+    @Test
+    fun `the watch city for a phone zone is the one on the same standard time`() {
+        fun cities(zone: String) = WatchCities.matching(ZoneId.of(zone), Instant.parse("2026-07-01T00:00:00Z")).map { it.name }
+        assertEquals(listOf("KARACHI"), cities("Asia/Almaty"))
+        // Summer time does not move the match: the watch stores standard time and switches itself.
+        assertEquals(listOf("MADRID", "PARIS", "ROME", "BERLIN", "STOCKHOLM"), cities("Europe/Berlin"))
+        // UTC is a clock, not a place to call home.
+        assertEquals(listOf("LISBON", "LONDON"), cities("Europe/London"))
+        assertEquals(listOf("KATHMANDU"), cities("Asia/Kathmandu"))
+        assertEquals(emptyList<String>(), cities("UTC+02:30"))
+    }
+
+    @Test
+    fun `the city table has the 55 cities of the operation guide plus UTC, by offset`() {
+        assertEquals(56, WatchCities.ALL.size)
+        assertEquals(WatchCities.ALL.sortedBy { it.offsetMinutes }, WatchCities.ALL)
     }
 }

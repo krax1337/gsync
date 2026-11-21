@@ -35,6 +35,7 @@ data class Saved(
     val autoSync: AutoSync? = null,
     val autoSyncPending: Boolean = false,
     val fineAdjustMs: Int = 0,
+    val phoneFinderEnabled: Boolean = true,
 )
 
 private val Context.watchPreferences by preferencesDataStore("watch")
@@ -67,6 +68,7 @@ private val SETTINGS_PENDING = booleanPreferencesKey("settings_pending")
 private val AUTO_SYNC = stringPreferencesKey("auto_sync")
 private val AUTO_SYNC_PENDING = booleanPreferencesKey("auto_sync_pending")
 private val FINE_ADJUST = intPreferencesKey("fine_adjust")
+private val PHONE_FINDER = booleanPreferencesKey("phone_finder")
 
 // Alarms, settings and auto sync are stored as the protocol frames that carry them.
 private val BLANK_SETTINGS = ByteArray(17).also { it[0] = Feature.SETTINGS.toByte() }
@@ -100,6 +102,7 @@ private fun decode(prefs: Preferences): Saved {
         autoSync = prefs[AUTO_SYNC]?.let { AutoSync.decode(it.hexToFrame()) },
         autoSyncPending = prefs[AUTO_SYNC_PENDING] ?: false,
         fineAdjustMs = prefs[FINE_ADJUST] ?: 0,
+        phoneFinderEnabled = prefs[PHONE_FINDER] ?: true,
     )
 }
 
@@ -131,4 +134,5 @@ private fun encode(saved: Saved, prefs: MutablePreferences) {
     prefs[SETTINGS_PENDING] = saved.settingsPending
     prefs[AUTO_SYNC_PENDING] = saved.autoSyncPending
     prefs[FINE_ADJUST] = saved.fineAdjustMs
+    prefs[PHONE_FINDER] = saved.phoneFinderEnabled
 }

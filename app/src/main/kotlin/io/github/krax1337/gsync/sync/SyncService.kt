@@ -52,7 +52,10 @@ class SyncService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP_FINDER) (application as GsyncApp).manager.stopFinder()
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         scope.cancel()
@@ -85,6 +88,9 @@ class SyncService : Service() {
     companion object {
         private const val CHANNEL = "sync"
         private const val NOTIFICATION_ID = 1
+
+        /** Sent by the "Stop" button of the phone finder notification. */
+        const val ACTION_STOP_FINDER = "io.github.krax1337.gsync.STOP_FINDER"
 
         /** Starts listening for the watch. Does nothing until a watch is paired and Bluetooth access is granted. */
         fun start(context: Context) {

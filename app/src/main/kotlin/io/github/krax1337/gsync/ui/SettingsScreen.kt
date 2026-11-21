@@ -6,6 +6,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,9 +28,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -62,19 +72,68 @@ private const val FINE_ADJUST_LIMIT_MS = 5000
 
 private enum class SettingsDialog { MINUTE, FINE_ADJUST, LANGUAGE, UNPAIR }
 
+/** The settings list, or the watch guide as a page in its place while [guideOpen]. */
 @Composable
-internal fun SettingsScreen(state: WatchState, watch: Watch, actions: WatchActions, padding: PaddingValues) {
+internal fun SettingsScreen(
+    state: WatchState,
+    watch: Watch,
+    actions: WatchActions,
+    padding: PaddingValues,
+    guideOpen: Boolean,
+    onGuideOpenChange: (Boolean) -> Unit,
+) {
+    // Held here, so the list is where it was left when the guide closes.
+    val listScroll = rememberScrollState()
+    BackHandler(enabled = guideOpen) { onGuideOpenChange(false) }
+    AnimatedContent(
+        targetState = guideOpen,
+        transitionSpec = { fadeIn(tween(MOTION_MS)) togetherWith fadeOut(tween(MOTION_MS)) },
+        label = "guide",
+    ) { open ->
+        if (open) {
+            GuideScreen(padding = padding, onBack = { onGuideOpenChange(false) })
+        } else {
+            SettingsList(state, watch, actions, padding, listScroll, onOpenGuide = { onGuideOpenChange(true) })
+        }
+    }
+}
+
+@Composable
+private fun SettingsList(
+    state: WatchState,
+    watch: Watch,
+    actions: WatchActions,
+    padding: PaddingValues,
+    scrollState: ScrollState,
+    onOpenGuide: () -> Unit,
+) {
     val settings = state.settings
     val autoSync = state.autoSync
     var dialog by rememberSaveable { mutableStateOf<SettingsDialog?>(null) }
 
-    ScreenColumn(padding) {
+    ScreenColumn(padding, scrollState) {
         ScreenTitle("Settings")
         if (settings == null || autoSync == null) {
             Gap()
             EmptyCard(
                 title = "Connect the watch once to load its settings",
                 text = "Hold the lower-left button on the watch for about 3 seconds, until CONNECT appears.",
+            )
+        }
+
+        Gap()
+        Section("Help") {
+            SettingRow(
+                title = "Watch guide",
+                supporting = "Buttons, cities, travelling",
+                onClick = onOpenGuide,
+                trailing = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
             )
         }
 
@@ -116,7 +175,16 @@ internal fun SettingsScreen(state: WatchState, watch: Watch, actions: WatchActio
         }
 
         Gap()
-        Section("Phone") { BatteryOptimisationRow() }
+        Section("Phone") {
+            SwitchRow(
+                title = "Phone finder",
+                supporting = "Ring this phone when you hold D (lower right) on the watch for 5 seconds",
+                checked = state.phoneFinderEnabled,
+                onCheckedChange = actions::setPhoneFinderEnabled,
+            )
+            RowDivider()
+            BatteryOptimisationRow()
+        }
 
         Gap()
         Section("Watch") {

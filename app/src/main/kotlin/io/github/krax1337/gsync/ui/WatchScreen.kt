@@ -83,6 +83,7 @@ internal fun WatchScreen(
     permissionsGranted: Boolean,
     onRequestPermissions: () -> Unit,
     padding: PaddingValues,
+    onOpenGuide: () -> Unit,
 ) {
     val context = LocalContext.current
     val settings = state.settings
@@ -117,7 +118,7 @@ internal fun WatchScreen(
                 onDisconnect = actions::disconnect,
             )
         }
-        Reveal(visible = state.link == LinkState.WAITING) { ConnectHint() }
+        Reveal(visible = state.link == LinkState.WAITING) { ConnectHint(onOpenGuide) }
         Reveal(visible = state.pendingWrites) { PendingBanner() }
     }
 }

@@ -18,13 +18,13 @@
 - 🎯 **Accurate.** Time comes from network time servers, not from whatever the phone thinks, and is written so that it lands on the watch as a second begins.
 - 🔄 **Syncs by itself.** The app answers the watch's four daily connections in the background. You do not have to open it.
 - 👀 **Checkable.** The first screen is a live clock showing what the watch should read. Hold the watch next to it.
-- 🧰 **Complete, not bloated.** Time, alarms, timer and all watch settings. No calendar, no voice assistant, no button actions.
+- 🧰 **Complete, not bloated.** Time, alarms, timer, all watch settings and the phone finder. No calendar, no voice assistant, no button actions.
 - 🔒 **Private.** No account, no analytics, no backend. The only thing it sends over the network is a time request.
 
 Unofficial project, not affiliated with Casio. G-SHOCK and CASIO are trademarks of Casio Computer Co., Ltd.
 
 > [!WARNING]
-> **Early release.** The protocol code is unit tested, but 0.1.0 has not yet been confirmed on a real watch. If something is off on yours, please [open an issue](https://github.com/krax1337/gsync/issues).
+> **Early release.** Time sync is confirmed on a real GW-BX5600. Alarms, timer, settings, background sync and the phone finder have unit tests but have not yet been checked on hardware. If something is off on yours, please [open an issue](https://github.com/krax1337/gsync/issues).
 
 ## 📲 Install
 
@@ -41,7 +41,7 @@ From then on the watch syncs four times a day. To sync right now, press the lowe
 <summary><b>💻 Install from a computer</b></summary>
 
 ```sh
-adb install -r gsync-0.1.0.apk
+adb install -r gsync-<version>.apk
 adb shell cmd package compile -m speed -f io.github.krax1337.gsync   # optional: compile ahead of time, no warm-up
 ```
 
@@ -54,7 +54,7 @@ Every APK is built and signed by the [Release workflow](.github/workflows/releas
 
 ```sh
 sha256sum --check SHA256SUMS
-apksigner verify --print-certs gsync-0.1.0.apk
+apksigner verify --print-certs gsync-<version>.apk
 ```
 
 The certificate SHA-256 digest must be:
@@ -76,6 +76,9 @@ The certificate SHA-256 digest must be:
 | **Display** | 12/24-hour time, day.month or month.day, weekday language, Standard or Classic digits |
 | **Light** | Auto light, 1.5 s or 3 s illumination |
 | **Sound and power** | Button tone, power saving |
+| **Phone finder** | Hold the lower-right button on the watch for five seconds and the phone rings, even on silent |
+
+The Settings tab also has a **watch guide**: what each button does, how to set the home city and world time on the watch, which built-in city matches your phone's time zone, and what to do when you travel.
 
 You can change alarms, timer and settings at any time. If the watch is not connected, the change is stored and written at its next connection: the next automatic sync at the latest, or right away when you press a button on the watch.
 
@@ -126,7 +129,7 @@ While a watch is paired, Android shows a permanent "G-Sync" notification. That i
 
 ## ⚠️ Status and limitations
 
-- Not yet confirmed on hardware (see the warning above).
+- Only time sync is confirmed on hardware so far (see the warning above).
 - One watch model: GW-BX5600. Other G-Shocks speak different protocols and are not supported.
 - World-time cities are written back to the watch unchanged, and there is no home city picker. The home time follows the phone's time zone.
 - The battery level uses the scale known for this model, which owners have reported as imprecise.
@@ -189,4 +192,4 @@ Security policy and how to report a vulnerability: [SECURITY.md](SECURITY.md). L
 - **Первый экран** показывает время, которое должно быть на часах: поднесите часы и сравните.
 - **Установка:** скачайте APK из [последнего релиза](https://github.com/krax1337/gsync/releases/latest), разрешите Bluetooth и уведомления, удерживайте левую нижнюю кнопку на часах около 3 секунд и выберите часы в приложении. В настройках приложения выберите для батареи режим «Без ограничений».
 
-Версия 0.1.0 пока не проверена на реальных часах.
+Синхронизация времени проверена на реальных часах. Будильники, таймер, настройки, фоновая синхронизация и поиск телефона пока нет.

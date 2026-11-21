@@ -62,6 +62,10 @@ data class WatchState(
     val pendingWrites: Boolean = false,
     /** Added to the time sent to the watch, to calibrate out a constant error. */
     val fineAdjustMs: Int = 0,
+    /** Whether holding the watch's lower-right button for five seconds rings this phone. */
+    val phoneFinderEnabled: Boolean = true,
+    /** The phone is ringing right now because the watch asked for it. */
+    val finderRinging: Boolean = false,
 )
 
 /** What the UI can ask for. Edits are persisted first and reach the watch at the next opportunity. */
@@ -82,6 +86,11 @@ interface WatchActions {
     fun setAutoSync(autoSync: AutoSync)
 
     fun setFineAdjust(ms: Int)
+
+    fun setPhoneFinderEnabled(enabled: Boolean)
+
+    /** Silences the phone finder tone. */
+    fun stopFinder()
 
     /** Sets the time again; only does something while [LinkState.CONNECTED]. */
     fun syncNow()

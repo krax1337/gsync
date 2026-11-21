@@ -7,4 +7,8 @@
     <string name="status_syncing">Syncing</string>
     <string name="status_connected">Connected</string>
     <string name="status_bluetooth_off">Bluetooth is off</string>
+    <string name="channel_finder">Phone finder</string>
+    <string name="finder_title">Phone finder</string>
+    <string name="finder_text">The watch is looking for this phone</string>
+    <string name="finder_stop">Stop</string>
 </resources>
