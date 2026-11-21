@@ -1,0 +1,27 @@
+# Toolchain and entry points for this project: `mise install`, then `mise run sdk` once.
+[tools]
+java = "temurin-25.0.5.1+2.0.LTS"
+android-sdk = "23.0" # command-line tools; mise points ANDROID_HOME at it
+
+[tasks.sdk]
+description = "Accept the Android SDK licences and install the packages the build needs"
+run = [
+  "yes | sdkmanager --licenses > /dev/null",
+  "sdkmanager 'platforms;android-37.2' 'build-tools;36.0.0' 'platform-tools'",
+]
+
+[tasks.test]
+description = "Run the unit tests"
+run = "./gradlew :app:testDebugUnitTest"
+
+[tasks.apk]
+description = "Build the optimized APK into app/build/outputs/apk/release/"
+run = "./gradlew :app:assembleRelease"
+
+[tasks.install]
+description = "Install the APK on the phone connected over adb and compile it ahead of time"
+depends = ["apk"]
+run = [
+  "$ANDROID_HOME/platform-tools/adb install -r app/build/outputs/apk/release/app-release.apk",
+  "$ANDROID_HOME/platform-tools/adb shell cmd package compile -m speed -f io.github.krax1337.gsync",
+]

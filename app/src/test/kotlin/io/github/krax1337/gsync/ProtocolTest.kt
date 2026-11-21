@@ -1,0 +1,156 @@
+package io.github.krax1337.gsync
+
+import io.github.krax1337.gsync.protocol.Alarm
+import io.github.krax1337.gsync.protocol.AlarmSet
+import io.github.krax1337.gsync.protocol.AutoSync
+import io.github.krax1337.gsync.protocol.ClockBlocks
+import io.github.krax1337.gsync.protocol.Condition
+import io.github.krax1337.gsync.protocol.HomeLocation
+import io.github.krax1337.gsync.protocol.Language
+import io.github.krax1337.gsync.protocol.ProtocolException
+import io.github.krax1337.gsync.protocol.Timer
+import io.github.krax1337.gsync.protocol.Trigger
+import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.protocol.hexToFrame
+import io.github.krax1337.gsync.protocol.timeFrame
+import io.github.krax1337.gsync.protocol.toHex
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Test
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+
+class ProtocolTest {
+    // Frames below are captures quoted in izivkov/GShockAPI and its notes.
+
+    @Test
+    fun `time frame matches a captured write`() {
+        val captured = LocalDateTime.of(2024, 5, 17, 12, 20, 15, 812_500_000)
+        assertEquals("09E80705110C140F05D001", timeFrame(captured).toHex())
+    }
+
+    @Test
+    fun `trigger is read from byte 8`() {
+        fun trigger(code: String) = Trigger.decode("101762073885CD7F${code}030FFFFFFFFF24000000".hexToFrame())
+        assertEquals(Trigger.CONNECT, trigger("01"))
+        assertEquals(Trigger.CONNECT, trigger("00"))
+        assertEquals(Trigger.FIND_PHONE, trigger("02"))
+        assertEquals(Trigger.AUTO_SYNC, trigger("03"))
+        assertEquals(Trigger.TIME_BUTTON, trigger("04"))
+    }
+
+    @Test
+    fun `home is the Casio city itself when the phone zone is one`() {
+        val july = Instant.parse("2026-07-01T00:00:00Z")
+        assertEquals(HomeLocation(40.7128, -74.0060, inDst = true), HomeLocation.of(ZoneId.of("America/New_York"), july))
+        assertEquals(false, HomeLocation.of(ZoneId.of("America/New_York"), Instant.parse("2026-01-01T00:00:00Z")).inDst)
+    }
+
+    @Test
+    fun `home is the Casio city that keeps the same clock otherwise`() {
+        val winter = Instant.parse("2026-01-01T00:00:00Z")
+        // Berlin follows the same rules as Paris, Almaty the same clock as Karachi.
+        assertEquals(HomeLocation.of(ZoneId.of("Europe/Paris"), winter), HomeLocation.of(ZoneId.of("Europe/Berlin"), winter))
+        assertEquals(HomeLocation.of(ZoneId.of("Asia/Karachi"), winter), HomeLocation.of(ZoneId.of("Asia/Almaty"), winter))
+    }
+
+    @Test
+    fun `a zone with no matching Casio city keeps its own coordinates`() {
+        // UTC-6 without DST matches no built-in city (Chicago observes DST).
+        val home = HomeLocation.of(ZoneId.of("America/Guatemala"), Instant.parse("2026-01-01T00:00:00Z"))
+        assertEquals(14.6349, home.latitude, 0.01)
+        assertEquals(-90.5069, home.longitude, 0.01)
+    }
+
+    @Test
+    fun `clock blocks of the wrong kind or size are refused`() {
+        assertThrows(ProtocolException::class.java) { ClockBlocks.slotWriteBack(ByteArray(100).also { it[0] = 0x05 }) }
+        assertThrows(ProtocolException::class.java) { ClockBlocks.slotWriteBack(ByteArray(101).also { it[0] = 0x03 }) }
+        assertThrows(ProtocolException::class.java) { ClockBlocks.cityWriteBack(ByteArray(133)) }
+    }
+
+    @Test
+    fun `alarms round trip through both frames`() {
+        val first = "15C0400700".hexToFrame() // 07:00, enabled, hourly signal on
+        val rest = "16" + "00400C1E" + "4040170F" + "00400000" + "00400000"
+        val alarms = AlarmSet.decode(first, rest.hexToFrame())
+        assertEquals(
+            AlarmSet(
+                listOf(Alarm(7, 0, true), Alarm(12, 30, false), Alarm(23, 15, true), Alarm(0, 0, false), Alarm(0, 0, false)),
+                hourlyChime = true,
+            ),
+            alarms,
+        )
+        assertEquals(first.toHex(), alarms.firstFrame().toHex())
+        assertEquals(rest, alarms.restFrame().toHex())
+    }
+
+    @Test
+    fun `timer is hours minutes seconds and keeps the rest of its frame`() {
+        val fromWatch = "1800 0A00 AABBCC".replace(" ", "").hexToFrame()
+        assertEquals(600, Timer.decode(fromWatch))
+        assertEquals("18011E2DAABBCC", Timer.applyTo(fromWatch, 1 * 3600 + 30 * 60 + 45).toHex())
+        assertEquals("18180000AABBCC", Timer.applyTo(fromWatch, Timer.MAX_SECONDS).toHex())
+        assertThrows(IllegalArgumentException::class.java) { Timer.applyTo(fromWatch, 0) }
+    }
+
+    @Test
+    fun `settings decode from flags that are mostly inverted`() {
+        val settings = WatchSettings.decode("1305000001050000200000000000000000".hexToFrame())
+        assertEquals(
+            WatchSettings(
+                use24Hour = true,
+                buttonTone = true,
+                autoLight = false,
+                powerSaving = true,
+                longLight = false,
+                dayFirst = true,
+                language = Language.RUSSIAN,
+                classicFont = true,
+            ),
+            settings,
+        )
+    }
+
+    @Test
+    fun `writing settings keeps the bits this app does not know`() {
+        val fromWatch = "13E8FE7700000000CF0000000000000000".hexToFrame()
+        val edited = WatchSettings(
+            use24Hour = true,
+            buttonTone = false,
+            autoLight = true,
+            powerSaving = false,
+            longLight = true,
+            dayFirst = false,
+            language = Language.GERMAN,
+            classicFont = true,
+        )
+        val written = edited.applyTo(fromWatch)
+        assertEquals("13FBFF7700030000EF0000000000000000", written.toHex())
+        assertEquals(edited, WatchSettings.decode(written))
+        assertEquals("CF", edited.copy(classicFont = false).applyTo(written).toHex().substring(16, 18))
+    }
+
+    @Test
+    fun `a short settings frame has no font byte to touch`() {
+        val short = "130500000105".hexToFrame()
+        val settings = WatchSettings.decode(short)
+        assertEquals(false, settings.classicFont)
+        assertEquals(short.toHex(), settings.copy(classicFont = true).applyTo(short).toHex())
+    }
+
+    @Test
+    fun `auto sync lives in bytes 12 and 13`() {
+        val on = "110F0F0F06005000040001000037D2".hexToFrame()
+        assertEquals(AutoSync(enabled = true, minute = 55), AutoSync.decode(on))
+        assertEquals("110F0F0F0600500004000100801ED2", AutoSync(enabled = false, minute = 30).applyTo(on).toHex())
+    }
+
+    @Test
+    fun `battery reading is scaled to percent`() {
+        assertEquals(Condition(batteryPercent = 100, temperatureC = 27), Condition.decode("28181B00".hexToFrame()))
+        assertEquals(Condition(batteryPercent = 50, temperatureC = -3), Condition.decode("2813FD00".hexToFrame()))
+        assertEquals(0, Condition.decode("280A1B00".hexToFrame()).batteryPercent)
+    }
+}

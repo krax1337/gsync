@@ -1,0 +1,364 @@
+package io.github.krax1337.gsync.ui
+
+import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.contentColorFor
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.LongState
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.node.Ref
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import io.github.krax1337.gsync.watch.Watch
+import java.util.Locale
+import kotlinx.coroutines.delay
+
+internal const val SECOND_MS = 1_000L
+internal const val MINUTE_MS = 60_000L
+
+/** Duration of every state change on screen: long enough to follow, too short to wait for. */
+internal const val MOTION_MS = 200
+
+/** "00" to "59": every two-digit field of a clock, without formatting one on each tick. */
+internal val TWO_DIGITS: List<String> = List(60) { "%02d".format(Locale.ROOT, it) }
+
+/** "GW-BX5600" from the advertised "CASIO GW-BX5600". */
+internal val Watch.model: String
+    get() = name.removePrefix("CASIO ").trim().ifEmpty { name }
+
+/** ":05" for minute 5. */
+internal fun minuteLabel(minute: Int): String = ":%02d".format(Locale.ROOT, minute)
+
+/**
+ * Whole [unitMs] periods of reference time (the phone clock corrected by [offsetMs]) that have
+ * passed since [anchorMs]. The value changes exactly on each boundary: the loop sleeps until the
+ * next one instead of polling, and only runs while the screen is at least started.
+ */
+@Composable
+internal fun rememberTicks(offsetMs: Long, unitMs: Long, anchorMs: Long = 0): LongState {
+    val ticks = remember(offsetMs, unitMs, anchorMs) {
+        mutableLongStateOf(Math.floorDiv(System.currentTimeMillis() + offsetMs - anchorMs, unitMs))
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(ticks, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val elapsed = System.currentTimeMillis() + offsetMs - anchorMs
+                ticks.longValue = Math.floorDiv(elapsed, unitMs)
+                delay(unitMs - Math.floorMod(elapsed, unitMs))
+            }
+        }
+    }
+    return ticks
+}
+
+/*
+ * Haptics. The dedicated toggle and tick effects exist from Android 14; before that the nearest
+ * equally light effect is the text handle tick.
+ */
+private val hasFineHaptics = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
+/** A switch changed. */
+internal fun HapticFeedback.toggle(on: Boolean) =
+    performHapticFeedback(
+        when {
+            !hasFineHaptics -> HapticFeedbackType.TextHandleMove
+            on -> HapticFeedbackType.ToggleOn
+            else -> HapticFeedbackType.ToggleOff
+        },
+    )
+
+/** One of several options was picked. */
+internal fun HapticFeedback.tick() =
+    performHapticFeedback(if (hasFineHaptics) HapticFeedbackType.SegmentTick else HapticFeedbackType.TextHandleMove)
+
+/** A dialog was confirmed. */
+internal fun HapticFeedback.confirm() = performHapticFeedback(HapticFeedbackType.Confirm)
+
+/**
+ * What screen content has to stay clear of: the system bars and the display cutout. The keyboard
+ * is left out on purpose; it only ever opens over a dialog.
+ */
+internal val ScreenInsets: WindowInsets
+    @Composable get() = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+
+/**
+ * Scrolling screen body: 16dp padding, capped width on large screens. Blocks are separated with
+ * [Gap]; optional ones go in [Reveal], which brings its own gap.
+ */
+@Composable
+internal fun ScreenColumn(padding: PaddingValues, content: @Composable ColumnScope.() -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 600.dp)
+                .fillMaxWidth()
+                .padding(16.dp),
+            content = content,
+        )
+    }
+}
+
+/** The space between two blocks of a screen. */
+@Composable
+internal fun Gap() {
+    Spacer(Modifier.height(16.dp))
+}
+
+/**
+ * A block that is not always there. It expands into place and collapses again, together with
+ * the [gap] above it, so nothing below jumps. Rows inside a panel take no gap.
+ */
+@Composable
+internal fun ColumnScope.Reveal(visible: Boolean, gap: Dp = 16.dp, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(tween(MOTION_MS)) + fadeIn(tween(MOTION_MS)),
+        exit = shrinkVertically(tween(MOTION_MS)) + fadeOut(tween(MOTION_MS)),
+    ) {
+        Box(Modifier.padding(top = gap)) { content() }
+    }
+}
+
+/** [Reveal] for a block that shows [value] while there is one. */
+@Composable
+internal fun <T : Any> ColumnScope.RevealNotNull(value: T?, content: @Composable (T) -> Unit) {
+    // The last value stays on screen while the block collapses.
+    val last = remember { Ref<T>() }
+    if (value != null) last.value = value
+    Reveal(visible = value != null) { last.value?.let { content(it) } }
+}
+
+@Composable
+internal fun ScreenTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.headlineMedium,
+        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
+    )
+}
+
+/** Rounded container that rows and card content sit in. */
+@Composable
+internal fun Panel(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surfaceContainer,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(modifier = modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = color) {
+        Column(content = content)
+    }
+}
+
+/** A small header with a [Panel] of rows under it. */
+@Composable
+internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() },
+        )
+        Panel(content = content)
+    }
+}
+
+@Composable
+internal fun RowDivider() {
+    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+}
+
+/** List row: title, optional supporting text, optional trailing control. At least 56dp tall. */
+@Composable
+internal fun SettingRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    supporting: String? = null,
+    titleColor: Color = Color.Unspecified,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge, color = titleColor)
+            if (supporting != null) {
+                Text(
+                    text = supporting,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(16.dp))
+            trailing()
+        }
+    }
+}
+
+/** [SettingRow] where the whole row is the switch. */
+@Composable
+internal fun SwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    supporting: String? = null,
+) {
+    val haptics = LocalHapticFeedback.current
+    SettingRow(
+        title = title,
+        supporting = supporting,
+        modifier = Modifier.toggleable(
+            value = checked,
+            role = Role.Switch,
+            onValueChange = {
+                haptics.toggle(it)
+                onCheckedChange(it)
+            },
+        ),
+        trailing = { Switch(checked = checked, onCheckedChange = null) },
+    )
+}
+
+/** Current value shown at the end of a row that opens a dialog. */
+@Composable
+internal fun ValueText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+internal fun EmptyCard(title: String, text: String? = null) {
+    Panel {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            if (text != null) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PendingBanner() {
+    Banner(
+        text = "Changes waiting. They are written at the next connection.",
+        icon = Icons.Outlined.Edit,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+    )
+}
+
+@Composable
+internal fun ErrorBanner(message: String) {
+    Banner(text = message, icon = Icons.Outlined.Warning, color = MaterialTheme.colorScheme.errorContainer)
+}
+
+/** How to make the watch connect; shown wherever the app is waiting for it. */
+@Composable
+internal fun ConnectHint() {
+    Banner(
+        text = "Press the lower-right button on the watch to sync now. " +
+            "Hold the lower-left button for 3 seconds to stay connected.",
+        icon = Icons.Outlined.Info,
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    )
+}
+
+@Composable
+private fun Banner(
+    text: String,
+    icon: ImageVector,
+    color: Color,
+    contentColor: Color = contentColorFor(color),
+    border: BorderStroke? = null,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = color,
+        contentColor = contentColor,
+        border = border,
+    ) {
+        Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(text = text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}

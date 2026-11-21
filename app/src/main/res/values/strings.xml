@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">G-Sync</string>
+    <string name="channel_sync">Watch sync</string>
+    <string name="status_waiting">Listening for the watch</string>
+    <string name="status_last_sync">Last sync %1$s</string>
+    <string name="status_syncing">Syncing</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_bluetooth_off">Bluetooth is off</string>
+</resources>
