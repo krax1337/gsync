@@ -1,0 +1,52 @@
+name: Watch report
+description: What works and what does not on your watch model
+title: "Watch report: "
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Watch model
+      description: As the app shows it, for example GW-B5600.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: G-Sync version
+      placeholder: 0.2.2
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: Pixel 9, Android 16
+    validations:
+      required: true
+  - type: checkboxes
+    id: worked
+    attributes:
+      label: What worked
+      description: Tick what you tried and saw working on the watch itself.
+      options:
+        - label: Pairing
+        - label: Time sync with the lower-right button
+        - label: Automatic sync in the background
+        - label: Alarms
+        - label: Timer
+        - label: Watch settings
+        - label: Phone finder
+        - label: Cities shown on the Watch tab
+  - type: textarea
+    id: problems
+    attributes:
+      label: What did not work
+      description: What you did, what the app showed and what the watch showed.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: The text from Settings → Diagnostics. It includes the coordinates of the home city set on the watch; remove them if you prefer.
+      render: text
+    validations:
+      required: true

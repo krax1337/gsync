@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in the app does not do what it should
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Watch model
+      placeholder: GW-BX5600
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: G-Sync version
+      placeholder: 0.2.2
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: Pixel 9, Android 16
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: If the bug is about syncing, the text from Settings → Diagnostics. It includes the coordinates of the home city set on the watch; remove them if you prefer.
+      render: text

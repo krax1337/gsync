@@ -1,3 +1,4 @@
+import javax.inject.Inject
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -16,8 +17,8 @@ android {
         applicationId = "io.github.krax1337.gsync"
         minSdk = 33
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.1"
+        versionCode = 5
+        versionName = "0.2.2"
     }
 
     buildTypes {
@@ -48,6 +49,17 @@ android {
     }
 }
 
+// The notices that have to travel with every copy of the app, as assets for its Licences page.
+androidComponents {
+    onVariants { variant ->
+        val name = "bundle${variant.name.replaceFirstChar { it.uppercase() }}Notices"
+        val bundle = tasks.register<BundleNotices>(name) {
+            notices.from(rootProject.files("NOTICE", "LICENSE", "docs/GShockAPI-LICENSE.txt", "docs/DSEG-LICENSE.txt"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(bundle, BundleNotices::assets)
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_17
@@ -65,4 +77,25 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+}
+
+/** Copies [notices] into `notices/` of a generated assets directory. */
+abstract class BundleNotices : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val notices: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val assets: DirectoryProperty
+
+    @get:Inject
+    abstract val files: FileSystemOperations
+
+    @TaskAction
+    fun bundle() {
+        files.sync {
+            from(notices)
+            into(assets.dir("notices"))
+        }
+    }
 }

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-11-27
+
+### Added
+
+- Licences page in Settings: the notices of G-Sync and of the open-source work inside it. They now travel with the APK.
+
+### Fixed
+
+- GShockAPI is under the MIT licence, not Apache-2.0 as the README and NOTICE said. Its licence text is now included.
+
 ## [0.2.1] - 2026-11-22
 
 The cities shown from the watch are now confirmed on a real GW-BX5600.

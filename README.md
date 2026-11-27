@@ -38,7 +38,7 @@ Unofficial project, not affiliated with Casio. G-SHOCK and CASIO are trademarks 
 The app shows only what a model has, and marks an experimental watch as such. On an experimental model the home city and time zone stay the way they are set on the watch.
 
 > [!WARNING]
-> **Experimental means untested.** If you own one of these models and try G-Sync, please [open an issue](https://github.com/krax1337/gsync/issues) with what worked and what did not, and attach the text from Settings → Diagnostics. A model moves to "Confirmed" once an owner has checked it.
+> **Experimental means untested.** If you own one of these models and try G-Sync, please [open a watch report](https://github.com/krax1337/gsync/issues/new?template=watch-report.yml) with what worked and what did not, and attach the text from Settings → Diagnostics. A model moves to "Confirmed" once an owner has checked it.
 
 ## 📲 Install
 
@@ -194,6 +194,6 @@ A watch takes a new time only after its clock tables were read and written back.
 
 ## 🙏 Credits
 
-The Casio protocol was reverse engineered by others. Frame, block and register layouts, the model table and the time zone coordinates are ported from [GShockAPI](https://github.com/izivkov/GShockAPI) by Ivo Zivkov (Apache-2.0), which builds on [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge). The seven-segment digits are [DSEG](https://github.com/keshikan/DSEG) by Keshikan (SIL Open Font License 1.1).
+The Casio protocol was reverse engineered by others. Frame, block and register layouts, the model table and the time zone coordinates are ported from [GShockAPI](https://github.com/izivkov/GShockAPI) by Ivo Zivkov (MIT), which builds on [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge). The seven-segment digits are [DSEG](https://github.com/keshikan/DSEG) by Keshikan (SIL Open Font License 1.1). All notices are in [NOTICE](NOTICE) and in the app under Settings → Licences.
 
-Security policy and how to report a vulnerability: [SECURITY.md](SECURITY.md). Licence: [Apache-2.0](LICENSE).
+How to report on a watch or send a change: [CONTRIBUTING.md](CONTRIBUTING.md). Security policy and how to report a vulnerability: [SECURITY.md](SECURITY.md). Licence: [Apache-2.0](LICENSE).

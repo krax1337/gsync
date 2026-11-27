@@ -2,16 +2,21 @@ G-Sync
 Copyright 2026 Asanali Bulatov
 
 This product includes work derived from GShockAPI
-(https://github.com/izivkov/GShockAPI), Copyright 2022 Ivo Zivkov, licensed
-under the Apache License, Version 2.0. The Casio frame, block and register
-layouts and the model table in
-`app/src/main/kotlin/io/github/krax1337/gsync/protocol/` and the time zone
-coordinates in `ZoneCoordinates.kt` are ported from it. GShockAPI in turn
-builds on protocol research by the Gadgetbridge project.
+(https://github.com/izivkov/GShockAPI), Copyright (c) 2023 Ivo Zivkov, licensed
+under the MIT License. The Casio frame, block and register layouts and the
+model table in app/src/main/kotlin/io/github/krax1337/gsync/protocol/ and the
+time zone coordinates in ZoneCoordinates.kt are ported from it. The licence
+text is in docs/GShockAPI-LICENSE.txt. GShockAPI in turn builds on protocol
+research by the Gadgetbridge project; no Gadgetbridge code is included.
 
 This product bundles the DSEG7 Classic font by Keshikan
-(https://github.com/keshikan/DSEG), licensed under the SIL Open Font License,
-Version 1.1. The licence text is in `docs/DSEG-LICENSE.txt`.
+(https://github.com/keshikan/DSEG), unmodified, licensed under the SIL Open
+Font License, Version 1.1. The licence text is in docs/DSEG-LICENSE.txt.
+
+The app is built with AndroidX and Jetpack Compose (The Android Open Source
+Project), Kotlin and kotlinx.coroutines (JetBrains s.r.o.) and Okio (Square,
+Inc.), which are part of the APK and licensed under the Apache License,
+Version 2.0. The licence text is in LICENSE.
 
 G-SHOCK and CASIO are trademarks of Casio Computer Co., Ltd. This project is
 not affiliated with or endorsed by Casio.

@@ -43,7 +43,7 @@ enum class Tab(val label: String) {
 }
 
 /** A page that takes the place of the settings list. */
-enum class HelpPage { GUIDE, DIAGNOSTICS }
+enum class HelpPage { GUIDE, DIAGNOSTICS, LICENCES }
 
 private val Tab.icon: ImageVector
     get() = when (this) {

@@ -4,7 +4,7 @@ package io.github.krax1337.gsync.protocol
  * Feature ids of the Casio "all features" protocol.
  *
  * Every request, response and write starts with one of these bytes. Protocol knowledge is ported
- * from izivkov/GShockAPI (Apache-2.0), which in turn builds on Gadgetbridge.
+ * from izivkov/GShockAPI (MIT), which in turn builds on Gadgetbridge.
  */
 object Feature {
     const val TIME = 0x09

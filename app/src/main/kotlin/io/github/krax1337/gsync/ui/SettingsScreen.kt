@@ -100,6 +100,7 @@ internal fun SettingsScreen(
             HelpPage.GUIDE -> GuideScreen(padding = padding, homeCity = state.homeCity, onBack = close)
             HelpPage.DIAGNOSTICS ->
                 DiagnosticsScreen(padding = padding, diagnostics = state.diagnostics, onBack = close)
+            HelpPage.LICENCES -> LicencesScreen(padding = padding, onBack = close)
             null -> SettingsList(state, watch, profile, actions, padding, listScroll, onOpenHelp = onHelpPageChange)
         }
     }
@@ -143,6 +144,12 @@ private fun SettingsList(
                 title = "Diagnostics",
                 supporting = "Raw data from the last sync, for bug reports",
                 onClick = { onOpenHelp(HelpPage.DIAGNOSTICS) },
+            )
+            RowDivider()
+            PageRow(
+                title = "Licences",
+                supporting = "G-Sync and the open-source work inside it",
+                onClick = { onOpenHelp(HelpPage.LICENCES) },
             )
         }
 

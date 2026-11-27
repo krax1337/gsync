@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.asFlow
  *
  * `screen` is one of pair, pair_noperm, watch, watch_connected, watch_empty, mismatch, add,
  * finder, experimental, alarms, alarms_pending, settings, experimental_settings, guide,
- * diagnostics. Without `dark` the system setting applies.
+ * diagnostics, licences. Without `dark` the system setting applies.
  */
 class DemoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,12 +62,13 @@ class DemoActivity : ComponentActivity() {
                     onRequestPermissions = {},
                     initialTab = when (screen) {
                         "alarms", "alarms_pending" -> Tab.ALARMS
-                        "settings", "experimental_settings", "guide", "diagnostics" -> Tab.SETTINGS
+                        "settings", "experimental_settings", "guide", "diagnostics", "licences" -> Tab.SETTINGS
                         else -> Tab.WATCH
                     },
                     initialHelpPage = when (screen) {
                         "guide" -> HelpPage.GUIDE
                         "diagnostics" -> HelpPage.DIAGNOSTICS
+                        "licences" -> HelpPage.LICENCES
                         else -> null
                     },
                     initialAddingWatch = screen == "add",
