@@ -6,6 +6,8 @@
 
 **Your G-Shock, on the exact second.** A small, private Android companion for Casio G-Shock watches: network-accurate time, alarms, timer and the watch's settings. No account.
 
+[![Download the APK](https://img.shields.io/github/v/release/krax1337/gsync?label=Download%20APK&style=for-the-badge&logo=android&logoColor=white&color=3DDC84)](https://github.com/krax1337/gsync/releases/latest)
+
 [![CI](https://github.com/krax1337/gsync/actions/workflows/ci.yml/badge.svg)](https://github.com/krax1337/gsync/actions/workflows/ci.yml)
 [![Android](https://img.shields.io/badge/Android-13%2B-3DDC84?logo=android&logoColor=white)](#-install)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -44,10 +46,13 @@ The app shows only what a model has, and marks an experimental watch as such. On
 
 Requirements: Android 13 or newer and a watch from the table above.
 
-1. **Download** `gsync-<version>.apk` from the [latest release](https://github.com/krax1337/gsync/releases/latest) and open it on the phone. Android asks once to allow installs from your browser or file manager.
+1. **Download** `gsync-<version>.apk` from the [latest release](https://github.com/krax1337/gsync/releases/latest) (under "Assets") and open it on the phone. Android asks once to allow installs from your browser or file manager.
 2. **Allow** Bluetooth and notifications when the app asks.
 3. **Pair:** start a connection on the watch (on most models, hold the lower-left button for about 3 seconds until CONNECT appears), then tap the watch in the app.
 4. **Battery:** in the app's Settings tab, tap "Battery optimisation" and choose "Unrestricted". Without it Android may delay background sync.
+
+> [!NOTE]
+> **Google Play Protect may warn you, or call the app harmful.** It says that about apps it has not seen before, and G-Sync is new and not on Google Play. You can let it scan the app and then install. You do not have to take that on trust: the whole source is in this repository, the app asks for no access to your messages, calls, location or files, and every APK can be checked against the release key (see "Verify the download" below).
 
 From then on the watch syncs four times a day. To sync right now, press the lower-right button on the watch.
 
