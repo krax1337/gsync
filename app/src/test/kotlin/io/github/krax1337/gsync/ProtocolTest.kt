@@ -193,6 +193,11 @@ class ProtocolTest {
         val on = "110F0F0F06005000040001000037D2".hexToFrame()
         assertEquals(AutoSync(enabled = true, minute = 55), AutoSync.decode(on))
         assertEquals("110F0F0F0600500004000100801ED2", AutoSync(enabled = false, minute = 30).applyTo(on).toHex())
+
+        // Only bit 7 of byte 12 is the switch: what else the watch keeps there stays.
+        val withHour = "110F0F0F06005000040001000637D2".hexToFrame()
+        assertEquals(AutoSync(enabled = true, minute = 55), AutoSync.decode(withHour))
+        assertEquals("110F0F0F0600500004000100861ED2", AutoSync(enabled = false, minute = 30).applyTo(withHour).toHex())
     }
 
     @Test

@@ -71,20 +71,24 @@ data class WatchSettings(
 /**
  * Automatic time adjustment from [Feature.AUTO_SYNC]: when [enabled], the watch connects four
  * times a day, [minute] minutes past the hour.
+ *
+ * Off is bit 7 of byte 12. Some watches keep other data in the rest of that byte (GShockAPI names
+ * the hour of the first sync on the OCW-S400), so only that bit is read and changed.
  */
 data class AutoSync(val enabled: Boolean, val minute: Int) {
     fun applyTo(frame: ByteArray): ByteArray =
         frame.requireFrame(Feature.AUTO_SYNC, MIN_SIZE).copyOf().also {
-            it[12] = (if (enabled) 0x00 else 0x80).toByte()
+            it[12] = it.u(12).withBit(OFF, !enabled).toByte()
             it[13] = minute.toByte()
         }
 
     companion object {
         private const val MIN_SIZE = 14
+        private const val OFF = 0x80
 
         fun decode(frame: ByteArray): AutoSync {
             frame.requireFrame(Feature.AUTO_SYNC, MIN_SIZE)
-            return AutoSync(enabled = frame.u(12) == 0, minute = frame.u(13).takeIf { it in 0..59 } ?: 30)
+            return AutoSync(enabled = frame.u(12) and OFF == 0, minute = frame.u(13).takeIf { it in 0..59 } ?: 30)
         }
     }
 }
