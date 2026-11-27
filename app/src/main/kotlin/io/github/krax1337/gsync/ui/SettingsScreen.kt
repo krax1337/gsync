@@ -64,6 +64,8 @@ import io.github.krax1337.gsync.protocol.Language
 import io.github.krax1337.gsync.protocol.Setting
 import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.update.AppUpdate
+import io.github.krax1337.gsync.update.UpdateStep
 import io.github.krax1337.gsync.watch.Watch
 import io.github.krax1337.gsync.watch.WatchActions
 import io.github.krax1337.gsync.watch.WatchState
@@ -72,7 +74,7 @@ import kotlin.math.roundToInt
 
 private const val FINE_ADJUST_LIMIT_MS = 5000
 
-private enum class SettingsDialog { MINUTE, FINE_ADJUST, LANGUAGE, UNPAIR }
+private enum class SettingsDialog { MINUTE, FINE_ADJUST, LANGUAGE, UNPAIR, UPDATE }
 
 /** The settings list, or the page that [helpPage] names in its place. */
 @Composable
@@ -206,6 +208,15 @@ private fun SettingsList(
         }
 
         Gap()
+        Section("App") {
+            UpdateRow(
+                update = state.update,
+                onCheck = actions::checkForUpdate,
+                onShow = { dialog = SettingsDialog.UPDATE },
+            )
+        }
+
+        Gap()
         Section("Watch") {
             SettingRow(title = watch.name, supporting = watch.address)
             RowDivider()
@@ -219,6 +230,19 @@ private fun SettingsList(
 
     val dismiss = { dialog = null }
     when (dialog) {
+        SettingsDialog.UPDATE -> {
+            val step = state.update.step
+            if (step is UpdateStep.Available) {
+                UpdateDialog(
+                    update = step,
+                    onConfirm = {
+                        dismiss()
+                        actions.installUpdate()
+                    },
+                    onDismiss = dismiss,
+                )
+            }
+        }
         SettingsDialog.MINUTE -> if (autoSync != null) {
             MinuteDialog(
                 initial = autoSync.minute,
@@ -617,3 +641,60 @@ private fun fineAdjustLabel(ms: Int): String =
         ms < 0 -> "−${-ms} ms"
         else -> "0 ms"
     }
+
+/** The version of the app. Offers an update once GitHub has a newer one; a tap looks for one. */
+@Composable
+private fun UpdateRow(update: AppUpdate, onCheck: () -> Unit, onShow: () -> Unit) {
+    val version = "Version ${update.installed}"
+    when (val step = update.step) {
+        UpdateStep.Idle -> SettingRow(title = version, supporting = "Tap to look for a newer version", onClick = onCheck)
+        UpdateStep.Checking -> SettingRow(title = version, supporting = "Looking for a newer version…")
+        UpdateStep.UpToDate -> SettingRow(title = version, supporting = "This is the latest version", onClick = onCheck)
+        is UpdateStep.Available -> SettingRow(
+            title = "Version ${step.version} is available",
+            supporting = "You have ${update.installed}. Tap to see what is new and to update",
+            titleColor = MaterialTheme.colorScheme.primary,
+            onClick = onShow,
+        )
+        is UpdateStep.Downloading -> SettingRow(title = version, supporting = "Downloading ${step.version}: ${step.percent}%")
+        is UpdateStep.Confirming -> SettingRow(
+            title = version,
+            supporting = "Android asks you to confirm the update to ${step.version}",
+            onClick = onCheck,
+        )
+        is UpdateStep.Failed -> SettingRow(title = version, supporting = "${step.message} Tap to try again", onClick = onCheck)
+    }
+}
+
+@Composable
+private fun UpdateDialog(update: UpdateStep.Available, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Version ${update.version}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (update.notes.isNotEmpty()) Text(update.notes)
+                Text(
+                    text = "G-Sync downloads it from GitHub and checks that it is signed with the same key as " +
+                        "this app. Android then asks you to confirm.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    haptics.confirm()
+                    onConfirm()
+                },
+            ) {
+                Text("Download and install")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Later") } },
+    )
+}

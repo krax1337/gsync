@@ -26,8 +26,8 @@ internal fun DiagnosticsScreen(padding: PaddingValues, diagnostics: String?, onB
         PageTopBar(title = "Diagnostics", onBack = onBack)
         ScreenColumn(PaddingValues(0.dp)) {
             Text(
-                text = "These are the clock tables the watch sent at the last sync. Attach them to a " +
-                    "bug report. They include the coordinates of the home city.",
+                text = "How the last sync was timed and the clock tables the watch sent. Attach this to a " +
+                    "bug report. It includes the coordinates of the home city.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

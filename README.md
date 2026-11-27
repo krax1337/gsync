@@ -20,7 +20,7 @@
 - 🔄 **Syncs by itself.** The app answers the watch's four daily connections in the background. You do not have to open it.
 - 👀 **Checkable.** The first screen is a live clock showing what the watch should read. Hold the watch next to it.
 - 🧰 **Complete, not bloated.** Time, alarms, timer, watch settings and the phone finder, for one watch or several. No calendar, no voice assistant, no button actions.
-- 🔒 **Private.** No account, no analytics, no backend. The only thing it sends over the network is a time request.
+- 🔒 **Private.** No account, no analytics, no backend. The only things it sends over the network are a time request and, when you open it, a look at GitHub for a new version.
 
 Unofficial project, not affiliated with Casio. G-SHOCK and CASIO are trademarks of Casio Computer Co., Ltd.
 
@@ -50,6 +50,8 @@ Requirements: Android 13 or newer and a watch from the table above.
 4. **Battery:** in the app's Settings tab, tap "Battery optimisation" and choose "Unrestricted". Without it Android may delay background sync.
 
 From then on the watch syncs four times a day. To sync right now, press the lower-right button on the watch.
+
+Every time you open G-Sync it looks at GitHub for a newer release. If there is one, Settings shows it under "App": tap it to see what is new and to update. The app checks that the download is signed with the same key as the installed app, and Android asks you to confirm.
 
 <details>
 <summary><b>💻 Install from a computer</b></summary>
@@ -131,16 +133,17 @@ sequenceDiagram
 
 ## 🔒 Privacy and permissions
 
-G-Sync has no account and no server. It stores the Bluetooth address of each watch and the last values read from it, on the phone only and excluded from backups.
+G-Sync has no account and no server. It stores the Bluetooth address of each watch and the last values read from it, on the phone only and excluded from backups. It contacts GitHub to look for a new release when you open the app, and to download one when you ask.
 
 | Permission | Why |
 | --- | --- |
 | Nearby devices (Bluetooth scan and connect) | Find the watch, listen for it, talk to it. Declared as never used for location |
 | Notifications | The status notification that keeps background sync alive, and the phone finder |
-| Internet | Time requests to `time.cloudflare.com`, `time.google.com` and `pool.ntp.org` |
+| Internet | Time requests to `time.cloudflare.com`, `time.google.com` and `pool.ntp.org`. GitHub, to look for an update and to download it |
 | Foreground service, run at startup | Keep listening for the watch, also after a reboot |
 | Wake lock | Keep the phone awake for the second or so an exchange takes |
 | Ask to ignore battery optimisations | Lets you grant "Unrestricted" from inside the app |
+| Install apps | Hand a downloaded update to Android, which asks you before it installs anything |
 
 While a watch is paired, Android shows a permanent "G-Sync" notification. That is what stops Android from freezing the app between syncs; you can hide the notification category in system settings.
 
@@ -186,6 +189,7 @@ Kotlin and Jetpack Compose, no Bluetooth library.
 | `watch/WatchManager` | Scan, connect, exchange, stored state. One per process |
 | `sync/SyncService` | Foreground service that keeps the app listening; restarts on boot |
 | `time/` | SNTP client and the network-backed clock |
+| `update/` | Looks for a new release on GitHub, downloads it and checks its signature before Android installs it |
 | `ui/` | Compose screens. Stateless: `WatchState` in, `WatchActions` out |
 
 A watch takes a new time only after its clock tables were read and written back. The GW-BX5600 keeps them in three blocks on a second pair of Bluetooth characteristics (`protocol/Time.kt`); older models keep them in registers (`protocol/Registers.kt`).

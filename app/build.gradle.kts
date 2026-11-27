@@ -17,8 +17,8 @@ android {
         applicationId = "io.github.krax1337.gsync"
         minSdk = 33
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.2.2"
+        versionCode = 6
+        versionName = "0.2.3"
     }
 
     buildTypes {

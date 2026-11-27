@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-11-27
+
+### Added
+
+- Updates from inside the app. When you open G-Sync it looks at GitHub for a newer release, and Settings → App offers it. On your tap G-Sync downloads it and checks that it is signed with the same key as the installed app, and Android asks you to confirm. Nothing is downloaded unless you ask.
+- Diagnostics now start with a line on how the last sync was timed: where the time came from, how long the link was idle before the time was written, and how long the watch took to acknowledge it. For reports of a watch that ends up early or late.
+
 ## [0.2.2] - 2026-11-27
 
 ### Added

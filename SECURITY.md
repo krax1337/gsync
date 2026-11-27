@@ -30,6 +30,7 @@ Android itself refuses an update that is not signed with the key of the installe
 ## Scope notes
 
 - The app talks to one paired watch over Bluetooth and to public NTP servers (`time.cloudflare.com`, `time.google.com`, `pool.ntp.org`). It has no account, no backend and no analytics.
+- When the app is opened it reads the latest release from `api.github.com`. It downloads that release's APK from this repository only when the user asks, and hands it to Android only if it is the same app, newer, and signed with the certificate of the installed copy. Android checks the signature again and asks the user before installing.
 - It holds no secrets. What it stores on the phone is the watch's Bluetooth address and the last alarms, timer and settings read from the watch, excluded from device backups.
 - NTP is not authenticated. Someone who controls your network can make the app set the watch to a wrong time; they cannot do anything else through it.
 - The signing key is kept in a GitHub Actions environment that only the signing job of the `Release` workflow can read. That job runs no code from the repository and no build tooling.

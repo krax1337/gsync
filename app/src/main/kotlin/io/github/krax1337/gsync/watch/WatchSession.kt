@@ -37,10 +37,25 @@ interface WatchLink {
     suspend fun writeBlock(block: ByteArray)
 }
 
-/** What a time sync did. */
-class TimeSync(
+/** How the write that set the time went. The durations are for diagnostics. */
+class TimeWrite(
     /** The instant (epoch ms) the watch was set to. */
     val setToMs: Long,
+    /** How long before that instant the frame was handed to the radio. */
+    val leadMs: Long,
+    /** How long the link sat idle between the last table write and this one. */
+    val idleMs: Long,
+    /** How long the watch took to acknowledge the write. */
+    val ackMs: Long,
+    /** No attempt met its whole second, so the exact instant was sent instead. */
+    val late: Boolean,
+    /** How long the watch took to acknowledge each write before this one, in order. */
+    val roundTripsMs: List<Long>,
+)
+
+/** What a time sync did. */
+class TimeSync(
+    val time: TimeWrite,
     /** What the watch sent on the way, each with a short label, for diagnostics. */
     val read: List<Pair<String, ByteArray>>,
     /** City names stored on the watch by index, 0 being home. Empty if they could not be read. */
@@ -146,26 +161,25 @@ class WatchSession(private val link: WatchLink, private val profile: WatchProfil
 
     private fun lacks(feature: String): Nothing = throw ProtocolException("The ${profile.model} has no $feature this app can set")
 
-    /** Writes the time so that it lands on a whole second and returns the instant (epoch ms) it was set to. */
-    private suspend fun writeTimeOnSecond(zoneId: ZoneId, nowMs: () -> Long): Long {
+    /** Writes the time so that it lands on a whole second. */
+    private suspend fun writeTimeOnSecond(zoneId: ZoneId, nowMs: () -> Long): TimeWrite {
         val lead = transmitLeadMs()
+        val idleSince = monotonicMs()
         repeat(BOUNDARY_ATTEMPTS) {
             val target = (nowMs() + lead) / 1000 * 1000 + 1000
             val sendAt = target - lead
             delay(sendAt - nowMs())
-            if (nowMs() - sendAt <= LATE_TOLERANCE_MS) {
-                writeTime(target, zoneId)
-                return target
-            }
+            if (nowMs() - sendAt <= LATE_TOLERANCE_MS) return writeTime(target, zoneId, lead, idleSince, late = false)
         }
         // Timers keep firing late (device busy or dozing): send the exact instant instead.
-        val exact = nowMs() + lead
-        writeTime(exact, zoneId)
-        return exact
+        return writeTime(nowMs() + lead, zoneId, lead, idleSince, late = true)
     }
 
-    private suspend fun writeTime(epochMs: Long, zoneId: ZoneId) =
+    private suspend fun writeTime(epochMs: Long, zoneId: ZoneId, leadMs: Long, idleSinceMs: Long, late: Boolean): TimeWrite {
+        val sent = monotonicMs()
         link.write(timeFrame(LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), zoneId)))
+        return TimeWrite(epochMs, leadMs, sent - idleSinceMs, monotonicMs() - sent, late, writeRoundTripsMs.toList())
+    }
 
     private suspend fun write(frame: ByteArray) = timed { link.write(frame) }
 

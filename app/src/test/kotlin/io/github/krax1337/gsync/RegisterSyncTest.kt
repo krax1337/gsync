@@ -80,7 +80,7 @@ class RegisterSyncTest {
 
         // Six clocks: three summer time registers, six zones, six cities.
         val registers = listOf("1D00", "1D02", "1D04") + (0..5).map { "1E0$it" } + (0..5).map { "1F0$it" }
-        val time = timeFrame(LocalDateTime.ofInstant(Instant.ofEpochMilli(sync.setToMs), zone)).toHex()
+        val time = timeFrame(LocalDateTime.ofInstant(Instant.ofEpochMilli(sync.time.setToMs), zone)).toHex()
         assertEquals(watch.echoed(*registers.toTypedArray()) + "write $time", watch.log)
     }
 
@@ -99,7 +99,7 @@ class RegisterSyncTest {
     @Test
     fun `time reaches a register watch on a whole second`() = runTest {
         val watch = FakeWatch(this, roundTripMs = 40)
-        val setTo = session(watch, "CASIO GW-B5600").syncTime(zone) { start + currentTime }.setToMs
+        val setTo = session(watch, "CASIO GW-B5600").syncTime(zone) { start + currentTime }.time.setToMs
 
         // Fifteen registers at 80 ms each end 1.45 s past the minute: the next whole second is the second one.
         assertEquals(Instant.parse("2026-11-21T07:30:02Z").toEpochMilli(), setTo)

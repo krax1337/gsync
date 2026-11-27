@@ -59,7 +59,8 @@ class SyncTimeTest {
     @Test
     fun `time reaches the watch on a whole second`() = runTest {
         val watch = FakeWatch(this, roundTripMs = 40)
-        val setTo = session(watch).syncTime(zone) { start + currentTime }.setToMs
+        val time = session(watch).syncTime(zone) { start + currentTime }.time
+        val setTo = time.setToMs
 
         assertEquals(0, setTo % 1000)
         val (sentAt, isBlock, frame) = watch.writes.last()
@@ -68,6 +69,9 @@ class SyncTimeTest {
         // Handed to the radio a quarter round trip early, at the first boundary after the blocks.
         assertEquals(setTo - 10, start + sentAt)
         assertTrue(setTo - (start + sentAt) < 1000)
+        // Six table exchanges took 240 ms; the link was then idle until 10 ms before the second.
+        assertEquals(listOf(10L, 500L, 40L), listOf(time.leadMs, time.idleMs, time.ackMs))
+        assertEquals(false, time.late)
     }
 
     @Test
@@ -130,10 +134,12 @@ class SyncTimeTest {
             if (watch.writes.size >= 3) slip += 370
             start + currentTime + slip
         }
-        val setTo = session(watch).syncTime(zone, now).setToMs
+        val time = session(watch).syncTime(zone, now).time
+        val setTo = time.setToMs
 
         val frame = watch.writes.last().third
         assertTrue(setTo % 1000 != 0L)
+        assertTrue(time.late)
         assertEquals(timeFrame(LocalDateTime.ofInstant(Instant.ofEpochMilli(setTo), zone)).toHex(), frame.toHex())
     }
 }

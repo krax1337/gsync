@@ -26,6 +26,8 @@ import io.github.krax1337.gsync.protocol.WatchSettings
 import io.github.krax1337.gsync.protocol.toHex
 import io.github.krax1337.gsync.sync.PhoneFinder
 import io.github.krax1337.gsync.time.NetworkClock
+import io.github.krax1337.gsync.update.AppUpdate
+import io.github.krax1337.gsync.update.Updater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -71,6 +73,7 @@ class WatchManager(private val context: Context) : WatchActions {
     private val clock = NetworkClock(SystemClock::elapsedRealtime, System::currentTimeMillis)
     private val adapter: BluetoothAdapter? = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val finder = PhoneFinder(context)
+    private val updater = Updater(context, scope)
 
     private val link = MutableStateFlow(Link())
     private val bluetoothOn = MutableStateFlow(adapter?.isEnabled == true)
@@ -87,13 +90,14 @@ class WatchManager(private val context: Context) : WatchActions {
     private class Connected(val address: String, val gatt: GattLink, val session: WatchSession)
 
     val state: StateFlow<WatchState> =
-        combine(store.saved, combine(link, bluetoothOn, error, reference, finder.ringing, ::Live), ::toState)
+        combine(store.saved, combine(link, bluetoothOn, error, reference, finder.ringing, ::Live), updater.state, ::toState)
             .stateIn(
                 scope,
                 SharingStarted.Eagerly,
                 toState(
                     runBlocking { store.saved.first() },
                     Live(link.value, bluetoothOn.value, error.value, reference.value, finder.ringing.value),
+                    updater.state.value,
                 ),
             )
 
@@ -108,8 +112,11 @@ class WatchManager(private val context: Context) : WatchActions {
 
     fun setUiVisible(visible: Boolean) {
         uiVisible.value = visible
-        // The Watch tab shows the time the watch should have: make it network time.
-        if (visible) scope.launch { refreshClock() }
+        if (visible) {
+            // The Watch tab shows the time the watch should have: make it network time.
+            scope.launch { refreshClock() }
+            updater.checkOnOpen()
+        }
     }
 
     /** Serves the paired watches until cancelled. Returns when no watch is paired. */
@@ -172,6 +179,13 @@ class WatchManager(private val context: Context) : WatchActions {
     }
 
     override fun stopFinder() = finder.stop()
+
+    override fun checkForUpdate() = updater.check()
+
+    override fun installUpdate() = updater.install()
+
+    /** What Android made of an update, as a `PackageInstaller` status. */
+    fun updateFinished(status: Int, message: String?) = updater.finished(status, message)
 
     override fun syncNow() {
         whileConnected { peer ->
@@ -334,19 +348,27 @@ class WatchManager(private val context: Context) : WatchActions {
         val sync = peer.session.syncTime(zone) { clock.now().epochMs + adjust }
         val reading = clock.now()
         val record = SyncRecord(
-            atMs = sync.setToMs - adjust,
+            atMs = sync.time.setToMs - adjust,
             trigger = trigger,
             source = if (reading.sample != null) ClockSource.NTP else ClockSource.PHONE,
             ntpRoundTripMs = reading.sample?.roundTripMs?.toInt() ?: 0,
             phoneClockErrorMs = if (reading.sample != null) System.currentTimeMillis() - reading.epochMs else 0,
             zone = zone.id,
         )
+        // Milliseconds throughout. A GW-BX5600 that is set exactly acknowledges the time write
+        // about 1080 ms after it was sent, whatever "idle" was: an "ack" well above that is a
+        // write that reached the watch late.
+        val timing = with(sync.time) {
+            "timing trigger=$trigger source=${record.source} ntp_round_trip=${record.ntpRoundTripMs} " +
+                "phone_error=${record.phoneClockErrorMs} adjust=$adjust lead=$leadMs idle=$idleMs ack=$ackMs " +
+                "late=$late writes=${roundTripsMs.joinToString(",")}"
+        }
         update(peer) { watch ->
             watch.copy(
                 lastSync = record,
                 homeCity = sync.cityNames[0],
                 worldCities = sync.cityNames.filterKeys { it != 0 }.toSortedMap().values.toList(),
-                syncData = sync.read.map { (label, bytes) -> "$label ${bytes.toHex()}" },
+                syncData = listOf(timing) + sync.read.map { (label, bytes) -> "$label ${bytes.toHex()}" },
             )
         }
     }
@@ -451,7 +473,7 @@ private data class Live(
     val finderRinging: Boolean,
 )
 
-private fun toState(saved: Saved, live: Live): WatchState {
+private fun toState(saved: Saved, live: Live, update: AppUpdate): WatchState {
     val current = saved.current
     val address = current?.watch?.address
     return WatchState(
@@ -480,5 +502,6 @@ private fun toState(saved: Saved, live: Live): WatchState {
         diagnostics = current?.syncData?.takeIf { it.isNotEmpty() }?.let { (listOf(current.watch.name) + it).joinToString("\n") },
         phoneFinderEnabled = saved.phoneFinderEnabled,
         finderRinging = live.finderRinging,
+        update = update,
     )
 }

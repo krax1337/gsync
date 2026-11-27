@@ -15,6 +15,7 @@ import io.github.krax1337.gsync.protocol.Support
 import io.github.krax1337.gsync.protocol.Trigger
 import io.github.krax1337.gsync.protocol.WatchProfiles
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.update.AppUpdate
 import io.github.krax1337.gsync.watch.ClockSource
 import io.github.krax1337.gsync.watch.LinkState
 import io.github.krax1337.gsync.watch.ReferenceClock
@@ -103,6 +104,7 @@ private fun sampleState(screen: String): WatchState {
         watches = listOf(SAMPLE_WATCH, SECOND_WATCH),
         watch = SAMPLE_WATCH,
         profile = WatchProfiles.of(SAMPLE_WATCH.name),
+        update = AppUpdate(installed = "0.2.3"),
         link = LinkState.WAITING,
         clock = ReferenceClock(offsetMs = 412, source = ClockSource.NTP),
         batteryPercent = 80,
@@ -140,6 +142,7 @@ private fun sampleState(screen: String): WatchState {
         homeCity = "KARACHI",
         worldCities = listOf("NEW YORK", "TOKYO"),
         diagnostics = """
+            timing trigger=AUTO_SYNC source=NTP ntp_round_trip=18 phone_error=-412 adjust=0 lead=9 idle=540 ack=37 late=false writes=35,38,36
             DST watch state 0: 1D 00 01 03 02 7F 76 00 00 FF FF FF FF FF FF
             DST setting 0: 1E 00 5B 00 14 05 00
             World city 0: 1F 00 4B 41 52 41 43 48 49 00 00 00 00 00 00 00 00 00 00 00
@@ -202,4 +205,8 @@ private class DemoActions(private val paired: List<Watch>) : WatchActions {
     override fun syncNow() = Unit
 
     override fun disconnect() = Unit
+
+    override fun checkForUpdate() = Unit
+
+    override fun installUpdate() = Unit
 }

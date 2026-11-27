@@ -5,6 +5,7 @@ import io.github.krax1337.gsync.protocol.AutoSync
 import io.github.krax1337.gsync.protocol.Trigger
 import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.protocol.WatchSettings
+import io.github.krax1337.gsync.update.AppUpdate
 import kotlinx.coroutines.flow.Flow
 
 data class Watch(val address: String, val name: String)
@@ -73,12 +74,14 @@ data class WatchState(
     val homeCity: String? = null,
     /** Names of the world time cities stored on the watch, as read at the last sync. */
     val worldCities: List<String> = emptyList(),
-    /** The clock tables the watch sent at the last sync, as text for a bug report. */
+    /** How the last sync was timed and the clock tables the watch sent, as text for a bug report. */
     val diagnostics: String? = null,
     /** Whether holding the watch's lower-right button for five seconds rings this phone. */
     val phoneFinderEnabled: Boolean = true,
     /** The phone is ringing right now because the watch asked for it. */
     val finderRinging: Boolean = false,
+    /** The version of the app and how far an update of it from GitHub has got. */
+    val update: AppUpdate = AppUpdate(),
 )
 
 /** What the UI can ask for. Edits are persisted first and reach the watch at the next opportunity. */
@@ -114,4 +117,10 @@ interface WatchActions {
     fun syncNow()
 
     fun disconnect()
+
+    /** Asks GitHub whether a newer version of the app has been released. */
+    fun checkForUpdate()
+
+    /** Downloads the version [checkForUpdate] found, checks it and hands it to Android to install. */
+    fun installUpdate()
 }
