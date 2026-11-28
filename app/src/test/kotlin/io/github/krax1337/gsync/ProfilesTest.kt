@@ -1,5 +1,6 @@
 package io.github.krax1337.gsync
 
+import io.github.krax1337.gsync.protocol.ClockFace
 import io.github.krax1337.gsync.protocol.Setting
 import io.github.krax1337.gsync.protocol.Support
 import io.github.krax1337.gsync.protocol.TimeProtocol
@@ -31,6 +32,7 @@ class ProfilesTest {
             hasTemperature = true,
             hasPhoneFinder = true,
             batteryScale = 14..24,
+            face = ClockFace.SQUARE,
         )
         assertEquals(expected, of("CASIO GW-BX5600"))
         assertEquals(expected, of("GW-BX5600"))
@@ -80,6 +82,13 @@ class ProfilesTest {
         val retro = of("CASIO ABL-100WE")
         assertFalse(retro.hasBattery || retro.hasTemperature || retro.hasTimer)
         assertFalse(Setting.LANGUAGE in retro.settings || Setting.DATE_FORMAT in retro.settings)
+    }
+
+    @Test
+    fun `steps are only offered where GShockAPI reads them`() {
+        for (name in listOf("ABL-100WE", "F-B100W", "BSA-B100")) assertTrue(name, of("CASIO $name").hasSteps)
+        val without = listOf("GW-BX5600", "GMW-BZ5000", "GW-B5600", "GBD-100", "GBD-200", "GBX-100", "GBD-800", "GBA-900", "DW-H5600")
+        for (name in without) assertFalse(name, of("CASIO $name").hasSteps)
     }
 
     @Test

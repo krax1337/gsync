@@ -36,6 +36,21 @@ enum class CityRegister {
 /** A field of [WatchSettings] that a model may or may not have. */
 enum class Setting { TIME_FORMAT, DATE_FORMAT, LANGUAGE, DIGITS, AUTO_LIGHT, LIGHT_DURATION, BUTTON_TONE, POWER_SAVING }
 
+/** How the display of the watch looks, so the reference clock in the app can be drawn like it. */
+enum class ClockFace {
+    /** A segment LCD: seven-segment digits, with the unlit segments showing faintly. */
+    SEGMENTS,
+
+    /**
+     * The memory-in-pixel display of the GW-BX5600: weekday and boxed date over the time, in
+     * whichever of its two digit styles is set, and nothing where a digit is dark.
+     */
+    SQUARE,
+
+    /** The memory-in-pixel display of the sports models, with the time across its width. */
+    SPORTS,
+}
+
 /** What differs between watch models, as far as this app is concerned. */
 data class WatchProfile(
     /** Model name without the "CASIO " the watch advertises in front of it. */
@@ -65,6 +80,13 @@ data class WatchProfile(
      */
     val clocks: Int = 0,
     val cityRegister: CityRegister = CityRegister.NONE,
+    val face: ClockFace = ClockFace.SEGMENTS,
+    /**
+     * The watch counts steps and hands the count out in its activity record (see [ActivityRecord]).
+     * Only set where GShockAPI reads the record that way; how the other sports models report
+     * their steps is not known.
+     */
+    val hasSteps: Boolean = false,
 )
 
 /**
@@ -93,6 +115,7 @@ object WatchProfiles {
         hasTemperature = true,
         hasPhoneFinder = true,
         batteryScale = 14..24,
+        face = ClockFace.SQUARE,
     )
 
     /** What GShockAPI assumes of a register watch unless its table says otherwise. */
@@ -163,10 +186,17 @@ object WatchProfiles {
         // frame of the watches above fits those is not known, so the timer is left alone.
         family(STANDARD.copy(hasTimer = false), "GBA-800", "GBA-900", "GBA-950")
         val tracker = autoLight.copy(hasTimer = false, hasTemperature = false)
-        family(tracker.copy(cityRegister = CityRegister.HOME_TIME), "GBD-100", "GBD-200", "GBD-300", "GBD-H1000", "GBX-100")
+        family(
+            tracker.copy(cityRegister = CityRegister.HOME_TIME, face = ClockFace.SPORTS),
+            "GBD-100", "GBD-200", "GBD-300", "GBD-H1000", "GBX-100",
+        )
         val bare = tracker.copy(hasBattery = false, cityRegister = CityRegister.NONE)
         family(bare, "GBD-800", "GMD-B800")
-        family(bare.copy(settings = STANDARD.settings - Setting.DATE_FORMAT - Setting.LANGUAGE), "ABL-100WE", "F-B100W", "BSA-B100")
+        // Of the watches that count steps, these are the three GShockAPI reads the count of.
+        family(
+            bare.copy(settings = STANDARD.settings - Setting.DATE_FORMAT - Setting.LANGUAGE, hasSteps = true),
+            "ABL-100WE", "F-B100W", "BSA-B100",
+        )
     }
 
     /**

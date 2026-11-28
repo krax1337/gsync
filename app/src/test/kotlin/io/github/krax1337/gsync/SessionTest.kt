@@ -19,7 +19,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
-/** What is exchanged for alarms, timer, settings and condition, model by model. */
+/** What is exchanged for alarms, timer, settings, condition and steps, model by model. */
 class SessionTest {
     /** A watch holding one frame per feature. Asking for a feature it does not hold fails the test. */
     private class FakeWatch : WatchLink {
@@ -32,7 +32,10 @@ class SessionTest {
             "28131B00", // battery reading 19, 27 °C
         ).associateBy { it.take(2) }
 
-        /** Every exchange in order: `read` and the feature, or `write` and the frame. */
+        /** The activity record the watch hands out. Asking a watch that has none fails the test. */
+        var activityRecord: ByteArray? = null
+
+        /** Every exchange in order: `read` and the feature, `write` and the frame, or `record` and the request. */
         val log = ArrayList<String>()
 
         override suspend fun request(vararg request: Int): ByteArray {
@@ -48,6 +51,11 @@ class SessionTest {
         override suspend fun requestBlock(request: ByteArray, size: Int): ByteArray = error("Unexpected block request")
 
         override suspend fun writeBlock(block: ByteArray): Unit = error("Unexpected block write")
+
+        override suspend fun requestRecord(request: ByteArray): ByteArray {
+            log += "record ${request.toHex()}"
+            return activityRecord ?: error("Unexpected record request")
+        }
     }
 
     private fun session(watch: FakeWatch, profile: WatchProfile) = WatchSession(watch, profile) { 0 }
@@ -103,6 +111,28 @@ class SessionTest {
         val retro = FakeWatch()
         assertEquals(Condition(batteryPercent = null, temperatureC = null), session(retro, "CASIO ABL-100WE").readCondition())
         assertEquals(emptyList<String>(), retro.log)
+    }
+
+    @Test
+    fun `a watch without a step counter is never asked for its steps`() = runTest {
+        for (name in listOf("CASIO GW-BX5600", "CASIO GBD-200")) {
+            val watch = FakeWatch()
+            assertEquals(name, null, session(watch, name).readSteps())
+            assertEquals(name, emptyList<String>(), watch.log)
+        }
+    }
+
+    @Test
+    fun `steps are read by starting a transfer and nothing is sent to end it`() = runTest {
+        val watch = FakeWatch()
+        // 28 November 2026, 09:15:42, and 6482 steps from byte 374 on.
+        watch.activityRecord = ByteArray(400).also {
+            "261128091542".hexToFrame().copyInto(it)
+            "52190000".hexToFrame().copyInto(it, 374)
+        }
+
+        assertEquals(6482, session(watch, "CASIO ABL-100WE").readSteps())
+        assertEquals(listOf("record 0011000000"), watch.log)
     }
 
     @Test

@@ -26,6 +26,20 @@ enum class LinkState {
 
 enum class ClockSource { NTP, PHONE }
 
+/** Which face the reference clock of a watch is drawn with. */
+enum class FaceChoice {
+    /** The face of the model, in the digits the watch is set to. */
+    AUTOMATIC,
+
+    /** The GW-BX5600's face with the time in seven-segment digits. */
+    SQUARE_CLASSIC,
+
+    /** The GW-BX5600's face with the time in its standard digits. */
+    SQUARE_STANDARD,
+    SPORTS,
+    SEGMENTS,
+}
+
 data class SyncRecord(
     /** Instant the watch was set to, epoch ms. */
     val atMs: Long,
@@ -59,6 +73,8 @@ data class WatchState(
     val clock: ReferenceClock = ReferenceClock(),
     val batteryPercent: Int? = null,
     val temperatureC: Int? = null,
+    /** Steps the watch counted today, as read at the last sync. Null if it counts none or none were read. */
+    val steps: Int? = null,
     val lastSync: SyncRecord? = null,
     val lastError: String? = null,
     val alarms: AlarmSet? = null,
@@ -70,6 +86,8 @@ data class WatchState(
     val pendingWrites: Boolean = false,
     /** Added to the time sent to the watch, to calibrate out a constant error. */
     val fineAdjustMs: Int = 0,
+    /** The face the user chose for the clock of this watch. */
+    val faceChoice: FaceChoice = FaceChoice.AUTOMATIC,
     /** Name of the home city stored on the watch, as read at the last sync. Null if not known. */
     val homeCity: String? = null,
     /** Names of the world time cities stored on the watch, as read at the last sync. */
@@ -107,6 +125,9 @@ interface WatchActions {
     fun setAutoSync(autoSync: AutoSync)
 
     fun setFineAdjust(ms: Int)
+
+    /** Chooses the face the clock of the watch on screen is drawn with. Nothing is sent to the watch. */
+    fun setFaceChoice(choice: FaceChoice)
 
     fun setPhoneFinderEnabled(enabled: Boolean)
 

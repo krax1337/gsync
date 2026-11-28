@@ -126,22 +126,26 @@ internal fun WatchScreen(
         RevealNotNull(value = state.lastError) { ErrorBanner(it) }
 
         Gap()
+        val (face, classicDigits) = faceFor(state.faceChoice, profile.face, settings?.classicFont ?: true)
         ClockPanel(
             clock = state.clock,
             use24Hour = use24Hour,
             dayFirst = dayFirst,
             language = settings?.language ?: Language.ENGLISH,
+            face = face,
+            classicDigits = classicDigits,
         )
         Gap()
         LastSync(sync = state.lastSync, offsetMs = state.clock.offsetMs, use24Hour = use24Hour)
         RevealNotNull(value = state.homeCity) {
             CityCard(home = it, world = state.worldCities, onOpenGuide = openGuide)
         }
-        Reveal(visible = profile.hasBattery || profile.hasTemperature || profile.hasAutoSync) {
+        Reveal(visible = profile.hasBattery || profile.hasTemperature || profile.hasSteps || profile.hasAutoSync) {
             StatTiles(
                 profile = profile,
                 battery = state.batteryPercent,
                 temperature = state.temperatureC,
+                steps = state.steps,
                 autoSync = state.autoSync,
             )
         }
@@ -497,14 +501,17 @@ private fun CityCard(home: String, world: List<String>, onOpenGuide: (() -> Unit
 
 /** The tiles the watch has something to show in; they share the row evenly. */
 @Composable
-private fun StatTiles(profile: WatchProfile, battery: Int?, temperature: Int?, autoSync: AutoSync?) {
-    val count = listOf(profile.hasBattery, profile.hasTemperature, profile.hasAutoSync).count { it }
+private fun StatTiles(profile: WatchProfile, battery: Int?, temperature: Int?, steps: Int?, autoSync: AutoSync?) {
+    val count = listOf(profile.hasBattery, profile.hasTemperature, profile.hasSteps, profile.hasAutoSync).count { it }
     val tiles: @Composable (Modifier) -> Unit = { tile ->
         if (profile.hasBattery) {
             StatTile(label = "Battery", value = battery?.let { "$it%" } ?: "–", modifier = tile)
         }
         if (profile.hasTemperature) {
             StatTile(label = "Temperature", value = temperature?.let { "$it\u00A0°C" } ?: "–", modifier = tile)
+        }
+        if (profile.hasSteps) {
+            StatTile(label = "Steps", value = steps?.let { "%,d".format(Locale.ENGLISH, it) } ?: "–", modifier = tile)
         }
         if (profile.hasAutoSync) {
             StatTile(

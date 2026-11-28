@@ -64,6 +64,8 @@ class RegisterSyncTest {
         override suspend fun requestBlock(request: ByteArray, size: Int): ByteArray = error("A register watch has no clock blocks")
 
         override suspend fun writeBlock(block: ByteArray): Unit = error("A register watch has no clock blocks")
+
+        override suspend fun requestRecord(request: ByteArray): ByteArray = error("Unexpected record request ${request.toHex()}")
     }
 
     private fun TestScope.session(watch: FakeWatch, name: String) = WatchSession(watch, WatchProfiles.of(name)) { currentTime }

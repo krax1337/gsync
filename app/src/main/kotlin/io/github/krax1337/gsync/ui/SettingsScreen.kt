@@ -66,6 +66,7 @@ import io.github.krax1337.gsync.protocol.WatchProfile
 import io.github.krax1337.gsync.protocol.WatchSettings
 import io.github.krax1337.gsync.update.AppUpdate
 import io.github.krax1337.gsync.update.UpdateStep
+import io.github.krax1337.gsync.watch.FaceChoice
 import io.github.krax1337.gsync.watch.Watch
 import io.github.krax1337.gsync.watch.WatchActions
 import io.github.krax1337.gsync.watch.WatchState
@@ -74,7 +75,7 @@ import kotlin.math.roundToInt
 
 private const val FINE_ADJUST_LIMIT_MS = 5000
 
-private enum class SettingsDialog { MINUTE, FINE_ADJUST, LANGUAGE, UNPAIR, UPDATE }
+private enum class SettingsDialog { MINUTE, FINE_ADJUST, LANGUAGE, FACE, UNPAIR, UPDATE }
 
 /** The settings list, or the page that [helpPage] names in its place. */
 @Composable
@@ -209,6 +210,13 @@ private fun SettingsList(
 
         Gap()
         Section("App") {
+            SettingRow(
+                title = "Clock face",
+                supporting = "How the clock on the Watch tab is drawn",
+                onClick = { dialog = SettingsDialog.FACE },
+                trailing = { ValueText(state.faceChoice.label) },
+            )
+            RowDivider()
             UpdateRow(
                 update = state.update,
                 onCheck = actions::checkForUpdate,
@@ -271,6 +279,17 @@ private fun SettingsList(
                 onDismiss = dismiss,
             )
         }
+        SettingsDialog.FACE -> ChoiceDialog(
+            title = "Clock face",
+            options = FaceChoice.entries,
+            selected = state.faceChoice,
+            label = { it.label },
+            onSelect = {
+                actions.setFaceChoice(it)
+                dismiss()
+            },
+            onDismiss = dismiss,
+        )
         SettingsDialog.UNPAIR -> UnpairDialog(
             // With several watches the model alone may not say which one.
             watch = if (state.watches.size > 1) "${watch.model} (${watch.addressTail})" else watch.model,
@@ -570,31 +589,51 @@ private fun FineAdjustDialog(initial: Int, onConfirm: (Int) -> Unit, onDismiss: 
 
 @Composable
 private fun LanguageDialog(selected: Language, onSelect: (Language) -> Unit, onDismiss: () -> Unit) {
+    ChoiceDialog(
+        title = "Weekday language",
+        options = Language.entries,
+        selected = selected,
+        label = { it.label },
+        onSelect = onSelect,
+        onDismiss = onDismiss,
+    )
+}
+
+/** A list to pick one of [options] from. Picking is the confirmation. */
+@Composable
+private fun <T> ChoiceDialog(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val haptics = LocalHapticFeedback.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Weekday language") },
+        title = { Text(title) },
         text = {
             Column(modifier = Modifier.selectableGroup().verticalScroll(rememberScrollState())) {
-                Language.entries.forEach { language ->
+                options.forEach { option ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .selectable(
-                                selected = language == selected,
+                                selected = option == selected,
                                 role = Role.RadioButton,
                                 onClick = {
                                     haptics.confirm()
-                                    onSelect(language)
+                                    onSelect(option)
                                 },
                             )
                             .heightIn(min = 56.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(selected = language == selected, onClick = null)
+                        RadioButton(selected = option == selected, onClick = null)
                         Spacer(Modifier.width(16.dp))
                         Text(
-                            text = language.label,
+                            text = label(option),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -605,6 +644,16 @@ private fun LanguageDialog(selected: Language, onSelect: (Language) -> Unit, onD
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** What a face is called in the list. */
+private val FaceChoice.label: String
+    get() = when (this) {
+        FaceChoice.AUTOMATIC -> "Automatic"
+        FaceChoice.SQUARE_CLASSIC -> "Square, Classic digits"
+        FaceChoice.SQUARE_STANDARD -> "Square, Standard digits"
+        FaceChoice.SPORTS -> "Sports"
+        FaceChoice.SEGMENTS -> "Segment LCD"
+    }
 
 @Composable
 private fun UnpairDialog(watch: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -667,7 +716,7 @@ private fun UpdateRow(update: AppUpdate, onCheck: () -> Unit, onShow: () -> Unit
 }
 
 @Composable
-private fun UpdateDialog(update: UpdateStep.Available, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+internal fun UpdateDialog(update: UpdateStep.Available, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     AlertDialog(
         onDismissRequest = onDismiss,

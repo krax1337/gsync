@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-28
+
+### Added
+
+- Today's steps on the Watch tab for the ABL-100WE, F-B100W and BSA-B100. They are read at every connection, after the time is set. G-Sync starts the transfer of the watch's activity record and never ends it, which by what GShockAPI says leaves the step history on the watch for the official app to collect. Experimental: ported from GShockAPI 2.0.0 and not tried on a watch. The GBD and GBA sports models show no steps, because how they report them is not known. Nothing changes on the GW-BX5600.
+- The clock on the Watch tab is drawn like the display of the watch. The GW-BX5600 gets its own face: weekday and boxed date over the time, in the Classic or the Standard digits the watch is set to, without the faint unlit segments its display does not have. The GBD and GBX sports models get theirs: the date above a rule, the time across the width, weekday and seconds below. The other models keep the seven-segment face.
+- Clock face in Settings: "Automatic" follows the model and the watch's digit setting, or pick any of the faces yourself. Kept for each watch.
+
+### Changed
+
+- A new version is announced when you open the app, with what is new and a button to update. Until now it was only shown in Settings. "Later" puts it off until the app is opened again.
+
 ## [0.2.4] - 2026-11-28
 
 ### Fixed

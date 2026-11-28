@@ -1,5 +1,6 @@
 package io.github.krax1337.gsync.watch
 
+import io.github.krax1337.gsync.protocol.ActivityRecord
 import io.github.krax1337.gsync.protocol.AlarmSet
 import io.github.krax1337.gsync.protocol.AppInfo
 import io.github.krax1337.gsync.protocol.AutoSync
@@ -35,6 +36,12 @@ interface WatchLink {
 
     /** Stores a clock block; returns once the watch has acknowledged it. */
     suspend fun writeBlock(block: ByteArray)
+
+    /**
+     * Asks for a record on the pair of characteristics a watch keeps for those: the watch first
+     * announces the record's length, then sends it in pieces, returned joined once all are in.
+     */
+    suspend fun requestRecord(request: ByteArray): ByteArray
 }
 
 /** How the write that set the time went. The durations are for diagnostics. */
@@ -155,6 +162,22 @@ class WatchSession(private val link: WatchLink, private val profile: WatchProfil
         } else {
             Condition(batteryPercent = null, temperatureC = null)
         }
+
+    /**
+     * The steps counted today. Null on a model without a step counter, which is sent nothing, and
+     * when the watch has no count or its record is not laid out as [ActivityRecord] expects.
+     *
+     * The transfer is started and never ended. The official app follows a record with the end
+     * command `04 11 00 00 00`, and GShockAPI says of its own read that sends it that it
+     * "finalizes and clears the watch's step history", and calls the read that leaves it out
+     * (`peek`, its default) the "non-destructive" one. Ending would take from the watch what the
+     * official app has yet to collect, so only the start command is written and nothing stored on
+     * the watch changes. What a watch does about a transfer left open is not known for these
+     * models. GShockAPI knows a family, not served here, that hangs up some 16 seconds later; the
+     * steps are therefore read after everything else, where that costs nothing.
+     */
+    suspend fun readSteps(): Int? =
+        if (profile.hasSteps) ActivityRecord.todaySteps(link.requestRecord(ActivityRecord.START)) else null
 
     /** A model without the hourly signal may use its flag for something else: it stays off. */
     private fun AlarmSet.forModel(): AlarmSet = if (profile.hasHourlySignal) this else copy(hourlyChime = false)

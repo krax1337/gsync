@@ -52,6 +52,8 @@ class SyncTimeTest {
             writes += Triple(scope.currentTime, true, block)
             delay(roundTripMs)
         }
+
+        override suspend fun requestRecord(request: ByteArray): ByteArray = error("Unexpected record request ${request.toHex()}")
     }
 
     private fun TestScope.session(watch: FakeWatch) = WatchSession(watch, WatchProfiles.of("CASIO GW-BX5600")) { currentTime }

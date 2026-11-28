@@ -1,5 +1,6 @@
 package io.github.krax1337.gsync
 
+import io.github.krax1337.gsync.protocol.ActivityRecord
 import io.github.krax1337.gsync.protocol.Alarm
 import io.github.krax1337.gsync.protocol.AlarmSet
 import io.github.krax1337.gsync.protocol.AutoSync
@@ -240,5 +241,52 @@ class ProtocolTest {
     fun `the city table has the 55 cities of the operation guide plus UTC, by offset`() {
         assertEquals(56, WatchCities.ALL.size)
         assertEquals(WatchCities.ALL.sortedBy { it.offsetMinutes }, WatchCities.ALL)
+    }
+
+    /** An activity record as [ActivityRecord] describes it, of the length the watch in GShockAPI's capture announces. */
+    private fun activityRecord(dateTime: String, steps: String): ByteArray {
+        // Everything that is not read holds FE FF, the mark of a slot without a value.
+        val record = ByteArray(400) { if (it % 2 == 0) 0xFE.toByte() else 0xFF.toByte() }
+        dateTime.hexToFrame().copyInto(record) // Bytes 0 to 5.
+        steps.hexToFrame().copyInto(record, 374)
+        return record
+    }
+
+    @Test
+    fun `the length of an activity record is read from the answer to its request`() {
+        // The exchange GShockAPI quotes from an ABL-100WE.
+        assertEquals("0011000000", ActivityRecord.START.toHex())
+        assertEquals(400, ActivityRecord.announcedSize(ActivityRecord.START, "00119001000000".hexToFrame()))
+        // An answer of another category, and one too short to hold a length.
+        assertEquals(null, ActivityRecord.announcedSize(ActivityRecord.START, "002E9001000000".hexToFrame()))
+        assertEquals(null, ActivityRecord.announcedSize(ActivityRecord.START, "00119001".hexToFrame()))
+    }
+
+    @Test
+    fun `the steps of the day are read from bytes 374 to 377 of the activity record`() {
+        // 28 November 2026, 09:15:42, and 6482 steps (0x1952), least significant byte first.
+        val record = activityRecord("261128091542", "52190000")
+        assertEquals(6482, ActivityRecord.todaySteps(record))
+        // Nothing behind the count is needed.
+        assertEquals(6482, ActivityRecord.todaySteps(record.copyOf(378)))
+        // The first byte is the year and not a mark: a record of another year reads the same.
+        assertEquals(123_456, ActivityRecord.todaySteps(activityRecord("270101000000", "40E20100")))
+        assertEquals(0, ActivityRecord.todaySteps(activityRecord("261128091542", "00000000")))
+    }
+
+    @Test
+    fun `an activity record that is cut short or starts with no date gives no steps`() {
+        val record = activityRecord("261128091542", "52190000")
+        assertEquals(null, ActivityRecord.todaySteps(record.copyOf(377)))
+        assertEquals(null, ActivityRecord.todaySteps(ByteArray(0)))
+        // A month 13, an hour 24, and a byte that is no pair of digits.
+        assertEquals(null, ActivityRecord.todaySteps(activityRecord("261328091542", "52190000")))
+        assertEquals(null, ActivityRecord.todaySteps(activityRecord("261128241542", "52190000")))
+        assertEquals(null, ActivityRecord.todaySteps(activityRecord("FF1128091542", "52190000")))
+    }
+
+    @Test
+    fun `a watch that has no count for the day gives no steps`() {
+        assertEquals(null, ActivityRecord.todaySteps(activityRecord("261128091542", "FEFFFFFF")))
     }
 }

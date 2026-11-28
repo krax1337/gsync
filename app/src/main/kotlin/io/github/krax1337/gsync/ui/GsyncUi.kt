@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import io.github.krax1337.gsync.protocol.WatchProfile
+import io.github.krax1337.gsync.update.UpdateStep
 import io.github.krax1337.gsync.watch.Watch
 import io.github.krax1337.gsync.watch.WatchActions
 import io.github.krax1337.gsync.watch.WatchState
@@ -70,6 +71,21 @@ fun GsyncUi(
     initialHelpPage: HelpPage? = null,
     initialAddingWatch: Boolean = false,
 ) {
+    // A new version is offered once per opening of the app, paired or not. After "Later" it
+    // stays on offer in Settings.
+    var answeredUpdate by rememberSaveable { mutableStateOf<String?>(null) }
+    val offered = (state.update.step as? UpdateStep.Available)?.takeIf { it.version != answeredUpdate }
+    if (offered != null) {
+        UpdateDialog(
+            update = offered,
+            onConfirm = {
+                answeredUpdate = offered.version
+                actions.installUpdate()
+            },
+            onDismiss = { answeredUpdate = offered.version },
+        )
+    }
+
     val watch = state.watch
     val profile = state.profile
     if (watch == null || profile == null) {

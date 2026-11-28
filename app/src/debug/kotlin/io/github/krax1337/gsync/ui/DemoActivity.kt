@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import io.github.krax1337.gsync.protocol.Alarm
 import io.github.krax1337.gsync.protocol.AlarmSet
 import io.github.krax1337.gsync.protocol.AutoSync
+import io.github.krax1337.gsync.protocol.ClockFace
 import io.github.krax1337.gsync.protocol.Language
 import io.github.krax1337.gsync.protocol.Setting
 import io.github.krax1337.gsync.protocol.Support
@@ -17,6 +18,7 @@ import io.github.krax1337.gsync.protocol.WatchProfiles
 import io.github.krax1337.gsync.protocol.WatchSettings
 import io.github.krax1337.gsync.update.AppUpdate
 import io.github.krax1337.gsync.watch.ClockSource
+import io.github.krax1337.gsync.watch.FaceChoice
 import io.github.krax1337.gsync.watch.LinkState
 import io.github.krax1337.gsync.watch.ReferenceClock
 import io.github.krax1337.gsync.watch.SyncRecord
@@ -31,8 +33,9 @@ import kotlinx.coroutines.flow.asFlow
  *
  *     adb shell am start -n io.github.krax1337.gsync/.ui.DemoActivity --es screen alarms --ez dark true
  *
- * `screen` is one of pair, pair_noperm, watch, watch_connected, watch_empty, mismatch, add,
- * finder, experimental, alarms, alarms_pending, settings, experimental_settings, guide,
+ * `screen` is one of pair, pair_noperm, watch, watch_12h, watch_standard, watch_standard_12h,
+ * watch_connected, watch_empty, mismatch, add, finder, experimental, tracker, tracker_12h,
+ * tracker_segments, steps, alarms, alarms_pending, settings, experimental_settings, guide,
  * diagnostics, licences. Without `dark` the system setting applies.
  */
 class DemoActivity : ComponentActivity() {
@@ -91,6 +94,12 @@ private val SECOND_WATCH = Watch("F0:9A:11:5C:27:B8", "CASIO GW-BX5600")
 
 /** A model nobody has confirmed the app on, as the `experimental` screens show it. */
 private val EXPERIMENTAL_WATCH = Watch("E1:7A:22:10:9B:44", "CASIO GW-B5600")
+
+/** A sports model: it has another display. */
+private val TRACKER_WATCH = Watch("C4:5B:12:7D:03:9E", "CASIO GBD-200")
+
+/** A watch that counts steps and hands the count out. */
+private val STEPS_WATCH = Watch("D8:3E:60:21:A4:7C", "CASIO ABL-100WE")
 
 /** One watch for each tag of the pairing list. */
 private val NEARBY = listOf(
@@ -158,19 +167,52 @@ private fun sampleState(screen: String): WatchState {
                 support = Support.EXPERIMENTAL,
                 settings = settings - setOf(Setting.DIGITS, Setting.POWER_SAVING),
                 hasTemperature = false,
+                // A segment display, unlike the watch the profile is copied from.
+                face = ClockFace.SEGMENTS,
             )
         },
         temperatureC = null,
     )
+    val tracker = synced.copy(
+        watches = listOf(TRACKER_WATCH),
+        watch = TRACKER_WATCH,
+        profile = WatchProfiles.of(TRACKER_WATCH.name),
+        temperatureC = null,
+        homeCity = null,
+        worldCities = emptyList(),
+    )
+    val stepCounter = synced.copy(
+        watches = listOf(STEPS_WATCH),
+        watch = STEPS_WATCH,
+        profile = WatchProfiles.of(STEPS_WATCH.name),
+        batteryPercent = null,
+        temperatureC = null,
+        steps = 6482,
+        timerSeconds = null,
+        homeCity = null,
+        worldCities = emptyList(),
+    )
+    // The faces as a watch set to 12-hour time and month before day has them, and as one set to
+    // the standard digits.
+    fun WatchState.in12Hour() = copy(settings = settings?.copy(use24Hour = false, dayFirst = false))
+    fun WatchState.inStandardDigits() = copy(settings = settings?.copy(classicFont = false))
     return when (screen) {
         "pair", "pair_noperm" -> WatchState()
         "watch_connected" -> synced.copy(link = LinkState.CONNECTED)
+        "watch_12h" -> synced.in12Hour()
+        "watch_standard" -> synced.inStandardDigits()
+        "watch_standard_12h" -> synced.inStandardDigits().in12Hour()
+        "tracker_12h" -> tracker.in12Hour()
         "watch_empty" -> WatchState(
             watches = listOf(SAMPLE_WATCH),
             watch = SAMPLE_WATCH,
             profile = WatchProfiles.of(SAMPLE_WATCH.name),
         )
         "experimental", "experimental_settings" -> experimental
+        "tracker" -> tracker
+        // The same watch drawn with the seven-segment face, to compare the two.
+        "tracker_segments" -> tracker.copy(profile = tracker.profile?.copy(face = ClockFace.SEGMENTS))
+        "steps" -> stepCounter
         "mismatch" -> synced.copy(homeCity = "TOKYO")
         "finder" -> synced.copy(finderRinging = true)
         "alarms_pending" -> synced.copy(pendingWrites = true)
@@ -197,6 +239,8 @@ private class DemoActions(private val paired: List<Watch>) : WatchActions {
     override fun setAutoSync(autoSync: AutoSync) = Unit
 
     override fun setFineAdjust(ms: Int) = Unit
+
+    override fun setFaceChoice(choice: FaceChoice) = Unit
 
     override fun setPhoneFinderEnabled(enabled: Boolean) = Unit
 

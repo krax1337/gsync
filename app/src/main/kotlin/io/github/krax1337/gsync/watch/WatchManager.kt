@@ -174,6 +174,8 @@ class WatchManager(private val context: Context) : WatchActions {
 
     override fun setFineAdjust(ms: Int) = editCurrent { it.copy(fineAdjustMs = ms) }
 
+    override fun setFaceChoice(choice: FaceChoice) = editCurrent { it.copy(faceChoice = choice) }
+
     override fun setPhoneFinderEnabled(enabled: Boolean) {
         if (!enabled) finder.stop()
         edit { it.copy(phoneFinderEnabled = enabled) }
@@ -422,6 +424,12 @@ class WatchManager(private val context: Context) : WatchActions {
             val autoSync = session.readAutoSync()
             update(peer) { if (it.autoSyncPending) it else it.copy(autoSync = autoSync) }
         }
+        // Last: the watch is left with an open transfer (see WatchSession.readSteps), and one that
+        // does not answer must not keep the readings above from being taken.
+        optional(peer) {
+            val steps = session.readSteps()
+            update(peer) { it.copy(steps = steps) }
+        }
     }
 
     private suspend fun update(peer: Connected, transform: (SavedWatch) -> SavedWatch) =
@@ -489,6 +497,7 @@ private fun toState(saved: Saved, live: Live, update: AppUpdate): WatchState {
         clock = live.clock,
         batteryPercent = current?.batteryPercent,
         temperatureC = current?.temperatureC,
+        steps = current?.steps,
         lastSync = current?.lastSync,
         lastError = live.error?.takeIf { it.address == null || it.address == address }?.message,
         alarms = current?.alarms,
@@ -498,6 +507,7 @@ private fun toState(saved: Saved, live: Live, update: AppUpdate): WatchState {
         pendingWrites = current != null &&
             (current.alarmsPending || current.timerPending || current.settingsPending || current.autoSyncPending),
         fineAdjustMs = current?.fineAdjustMs ?: 0,
+        faceChoice = current?.faceChoice ?: FaceChoice.AUTOMATIC,
         homeCity = current?.homeCity,
         worldCities = current?.worldCities.orEmpty(),
         diagnostics = current?.syncData?.takeIf { it.isNotEmpty() }?.let { (listOf(current.watch.name) + it).joinToString("\n") },

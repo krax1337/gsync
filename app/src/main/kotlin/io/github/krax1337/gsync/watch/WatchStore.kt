@@ -24,6 +24,8 @@ data class SavedWatch(
     val watch: Watch,
     val batteryPercent: Int? = null,
     val temperatureC: Int? = null,
+    /** Steps counted today, as read at the last sync. Null on a watch without a step counter. */
+    val steps: Int? = null,
     val lastSync: SyncRecord? = null,
     val alarms: AlarmSet? = null,
     val alarmsPending: Boolean = false,
@@ -34,6 +36,7 @@ data class SavedWatch(
     val autoSync: AutoSync? = null,
     val autoSyncPending: Boolean = false,
     val fineAdjustMs: Int = 0,
+    val faceChoice: FaceChoice = FaceChoice.AUTOMATIC,
     /** Home city and world time cities stored on the watch, as read at the last sync. */
     val homeCity: String? = null,
     val worldCities: List<String> = emptyList(),
@@ -111,6 +114,7 @@ private fun decodeWatch(prefs: Preferences, address: String, prefix: String): Sa
         watch = Watch(address, string("name").orEmpty()),
         batteryPercent = int("battery"),
         temperatureC = int("temperature"),
+        steps = int("steps"),
         lastSync = long("sync_at")?.let {
             SyncRecord(
                 atMs = it,
@@ -130,6 +134,7 @@ private fun decodeWatch(prefs: Preferences, address: String, prefix: String): Sa
         autoSync = string("auto_sync")?.let { AutoSync.decode(it.hexToFrame()) },
         autoSyncPending = flag("auto_sync_pending"),
         fineAdjustMs = int("fine_adjust") ?: 0,
+        faceChoice = string("face")?.let { name -> FaceChoice.entries.firstOrNull { it.name == name } } ?: FaceChoice.AUTOMATIC,
         homeCity = string("home_city"),
         worldCities = string("world_cities")?.split('|').orEmpty(),
         syncData = string("sync_data")?.split('\n').orEmpty(),
@@ -145,6 +150,7 @@ private fun encodeWatch(saved: SavedWatch, prefs: MutablePreferences, prefix: St
     string("name", saved.watch.name)
     saved.batteryPercent?.let { int("battery", it) }
     saved.temperatureC?.let { int("temperature", it) }
+    saved.steps?.let { int("steps", it) }
     saved.lastSync?.let {
         long("sync_at", it.atMs)
         string("sync_trigger", it.trigger.name)
@@ -165,6 +171,7 @@ private fun encodeWatch(saved: SavedWatch, prefs: MutablePreferences, prefix: St
     flag("settings_pending", saved.settingsPending)
     flag("auto_sync_pending", saved.autoSyncPending)
     int("fine_adjust", saved.fineAdjustMs)
+    if (saved.faceChoice != FaceChoice.AUTOMATIC) string("face", saved.faceChoice.name)
     saved.homeCity?.let { string("home_city", it) }
     if (saved.worldCities.isNotEmpty()) string("world_cities", saved.worldCities.joinToString("|"))
     if (saved.syncData.isNotEmpty()) string("sync_data", saved.syncData.joinToString("\n"))

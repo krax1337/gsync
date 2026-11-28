@@ -29,6 +29,10 @@ internal class WatchColors(
     /** Unlit segments showing through behind the digits. */
     val lcdGhost: Color,
     val lcdLabel: Color,
+    /** The memory-in-pixel display of the sports models: one ink on one ground, nothing in between. */
+    val mipPanel: Color,
+    val mipEdge: Color,
+    val mipInk: Color,
     val connected: Color,
 )
 
@@ -39,6 +43,9 @@ private val LightWatchColors = WatchColors(
     lcdSegment = Color(0xFF171B16),
     lcdGhost = Color(0x12171B16),
     lcdLabel = Color(0xB8171B16),
+    mipPanel = Color(0xFFDDE0DC),
+    mipEdge = Color(0xFFC4C8C3),
+    mipInk = Color(0xFF0B0D0C),
     connected = Color(0xFF1E8E3E),
 )
 
@@ -49,6 +56,9 @@ private val DarkWatchColors = WatchColors(
     lcdSegment = Color(0xFFDFE6DC),
     lcdGhost = Color(0x12DFE6DC),
     lcdLabel = Color(0xA3DFE6DC),
+    mipPanel = Color(0xFF050606),
+    mipEdge = Color(0xFF262928),
+    mipInk = Color(0xFFF1F3F0),
     connected = Color(0xFF6DD58C),
 )
 

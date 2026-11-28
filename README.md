@@ -56,7 +56,7 @@ Requirements: Android 13 or newer and a watch from the table above.
 
 From then on the watch syncs four times a day. To sync right now, press the lower-right button on the watch.
 
-Every time you open G-Sync it looks at GitHub for a newer release. If there is one, Settings shows it under "App": tap it to see what is new and to update. The app checks that the download is signed with the same key as the installed app, and Android asks you to confirm.
+Every time you open G-Sync it looks at GitHub for a newer release. If there is one, the app tells you what is new and offers to update; say "Later" and it stays on offer in Settings under "App". The app checks that the download is signed with the same key as the installed app, and Android asks you to confirm.
 
 <details>
 <summary><b>💻 Install from a computer</b></summary>
@@ -103,6 +103,7 @@ What follows is the GW-BX5600. Other models have a subset.
 
 - **Several watches.** Tap the watch name at the top of the first tab to switch between paired watches or to add one. Each has its own alarms, timer, settings and sync history.
 - **Cities.** The first tab shows the home city and world time cities stored on the watch, and says whether the home city fits the phone's time zone.
+- **Steps.** On the ABL-100WE, F-B100W and BSA-B100 the first tab shows the steps the watch has counted today, as read at the last connection. G-Sync starts the transfer of the watch's activity record and never ends it, which by what GShockAPI says leaves the step history on the watch for the official app to collect. Experimental and untested on hardware. The GBD and GBA sports models count steps too but show none here, because how they report them is not known.
 - **Watch guide** (GW-BX5600). What each button does, how to set the home city and world time, which built-in city matches your phone's time zone, and what to do when you travel.
 - **Offline edits.** Change alarms, timer and settings at any time. If the watch is not connected, the change is stored and written at its next connection.
 

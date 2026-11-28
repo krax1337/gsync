@@ -80,7 +80,7 @@ class WatchStoreTest {
                     worldCities = listOf("NEW YORK", "TOKYO"),
                     syncData = listOf("slots 05AA", "zones 03BB", "cities 06CC"),
                 ),
-                SavedWatch(watch = second, timerSeconds = 90, fineAdjustMs = 40),
+                SavedWatch(watch = second, timerSeconds = 90, fineAdjustMs = 40, steps = 6482),
             ),
             selected = second.address,
         )
@@ -90,6 +90,10 @@ class WatchStoreTest {
         val read = decode(stored)
         assertEquals(saved, read)
         assertEquals(second, read.current?.watch)
+        // Steps live under their own key; a watch that never had any reads back without.
+        assertEquals(6482, stored[intPreferencesKey("${second.address}/steps")])
+        assertEquals(null, stored[intPreferencesKey("${first.address}/steps")])
+        assertEquals(listOf(null, 6482), read.watches.map { it.steps })
     }
 
     @Test

@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
+import io.github.krax1337.gsync.protocol.ActivityRecord
 import io.github.krax1337.gsync.protocol.Feature
 import io.github.krax1337.gsync.protocol.ProtocolException
 import io.github.krax1337.gsync.protocol.toHex
@@ -29,11 +30,15 @@ class LinkLostException(message: String) : IOException(message)
 /**
  * GATT connection to the watch's "all features" service.
  *
- * Two pairs of characteristics, each a request side and a data side:
+ * Three pairs of characteristics, each a request side and a data side:
  * - features: requests go to one characteristic, the answer is a notification on the other, which
  *   also takes the writes;
  * - clock blocks: the same arrangement for the large time tables, whose answers arrive in pieces.
- *   Only watches that keep their clock in blocks have this pair; the others are served without it.
+ *   Only watches that keep their clock in blocks have this pair; the others are served without it;
+ * - records: where a watch that counts steps hands out its activity record, again in pieces. A
+ *   watch that counts nothing can have this pair as well (the GW-BX5600 does), so its
+ *   notifications are not switched on with the others but when a record is first asked for: a
+ *   watch that is never asked sees nothing of it.
  *
  * One operation is in flight at a time.
  */
@@ -44,16 +49,24 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
     private lateinit var featureChar: BluetoothGattCharacteristic
     private var blockRequestChar: BluetoothGattCharacteristic? = null
     private var blockChar: BluetoothGattCharacteristic? = null
+    private var recordRequestChar: BluetoothGattCharacteristic? = null
+    private var recordChar: BluetoothGattCharacteristic? = null
 
     private val ready = CompletableDeferred<Unit>()
     private val lost = CompletableDeferred<String>()
     private val notifications = Channel<ByteArray>(Channel.UNLIMITED)
     private val blockPieces = Channel<ByteArray>(Channel.UNLIMITED)
     private val writeAcks = Channel<Int>(Channel.UNLIMITED)
+    private val recordAnswers = Channel<ByteArray>(Channel.UNLIMITED)
+    private val recordPieces = Channel<ByteArray>(Channel.UNLIMITED)
+    private val subscriptions = Channel<Int>(Channel.UNLIMITED)
     private val operation = Mutex()
 
     /** Characteristics still waiting to have their notifications switched on. */
     private val toSubscribe = ArrayDeque<BluetoothGattCharacteristic>()
+
+    /** Whether the record pair has its notifications switched on. Only touched inside [operation]. */
+    private var recordsSubscribed = false
 
     override suspend fun request(vararg request: Int): ByteArray = operation.withLock {
         notifications.drain() // Anything the watch sent unasked.
@@ -82,6 +95,26 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         send(blockChar ?: throw ProtocolException(NO_BLOCKS), block, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
     }
 
+    override suspend fun requestRecord(request: ByteArray): ByteArray = operation.withLock {
+        val requestSide = recordRequestChar ?: throw ProtocolException(NO_RECORDS)
+        val dataSide = recordChar ?: throw ProtocolException(NO_RECORDS)
+        if (!recordsSubscribed) {
+            subscribe(requestSide)
+            subscribe(dataSide)
+            recordsSubscribed = true
+        }
+        recordAnswers.drain()
+        recordPieces.drain()
+        send(requestSide, request, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        val size = withTimeoutOrNull(RESPONSE_TIMEOUT_MS) { awaitRecordSize(request) }
+            ?: throw LinkLostException("No answer to record request ${request.toHex()}")
+        withTimeoutOrNull(BLOCK_TIMEOUT_MS) {
+            var record = ByteArray(0)
+            while (record.size < size) record += recordPieces.receive()
+            record
+        } ?: throw LinkLostException("Incomplete answer to record request ${request.toHex()}")
+    }
+
     /** Suspends until the connection ends and returns why. */
     suspend fun awaitLost(): String = lost.await()
 
@@ -103,6 +136,15 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         }
     }
 
+    private suspend fun awaitRecordSize(request: ByteArray): Int {
+        while (true) {
+            val size = ActivityRecord.announcedSize(request, recordAnswers.receive()) ?: continue
+            // A length nobody could mean must not be waited for.
+            if (size !in 1..MAX_RECORD) throw ProtocolException("Watch announced a record of $size bytes")
+            return size
+        }
+    }
+
     private suspend fun send(characteristic: BluetoothGattCharacteristic, bytes: ByteArray, writeType: Int) {
         var started = gatt.writeCharacteristic(characteristic, bytes, writeType)
         // Android lets one write at a time through to a device, whichever app it comes from: with
@@ -119,6 +161,17 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         if (status != BluetoothGatt.GATT_SUCCESS) throw ProtocolException("Watch refused ${bytes.take(2).toByteArray().toHex()}… (status $status)")
     }
 
+    /** Switches on the notifications of a characteristic that was left alone while the link came up. */
+    private suspend fun subscribe(characteristic: BluetoothGattCharacteristic) {
+        val config = characteristic.getDescriptor(CLIENT_CONFIG) ?: throw ProtocolException(NO_RECORDS)
+        gatt.setCharacteristicNotification(characteristic, true)
+        val started = gatt.writeDescriptor(config, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+        if (started != BluetoothStatusCodes.SUCCESS) throw LinkLostException("Subscription refused by Bluetooth stack ($started)")
+        val status = withTimeoutOrNull(BLOCK_TIMEOUT_MS) { subscriptions.receive() }
+            ?: throw LinkLostException("Subscription was not acknowledged")
+        if (status != BluetoothGatt.GATT_SUCCESS) throw ProtocolException("Watch refused a subscription (status $status)")
+    }
+
     private fun fail(reason: String) {
         if (!lost.complete(reason)) return
         val cause = LinkLostException(reason)
@@ -126,6 +179,9 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         notifications.close(cause)
         blockPieces.close(cause)
         writeAcks.close(cause)
+        recordAnswers.close(cause)
+        recordPieces.close(cause)
+        subscriptions.close(cause)
     }
 
     private fun subscribeNext(gatt: BluetoothGatt) {
@@ -165,12 +221,19 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
             featureChar = feature
             blockRequestChar = service.getCharacteristic(BLOCK_REQUEST)
             blockChar = service.getCharacteristic(BLOCK)
+            recordRequestChar = service.getCharacteristic(RECORD_REQUEST)
+            recordChar = service.getCharacteristic(RECORD)
             toSubscribe += feature
             blockChar?.let { toSubscribe += it }
             subscribeNext(gatt)
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            // Once the link is ready, the only subscriptions are those an operation is waiting for.
+            if (ready.isCompleted) {
+                subscriptions.trySend(status)
+                return
+            }
             if (status == BluetoothGatt.GATT_SUCCESS) subscribeNext(gatt) else fail("Could not subscribe to the watch (status $status)")
         }
 
@@ -183,6 +246,8 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
             when (characteristic.uuid) {
                 FEATURE -> notifications.trySend(value)
                 BLOCK -> blockPieces.trySend(value)
+                RECORD_REQUEST -> recordAnswers.trySend(value)
+                RECORD -> recordPieces.trySend(value)
             }
         }
 
@@ -197,15 +262,19 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         private val FEATURE: UUID = UUID.fromString("26eb002d-b012-49a8-b1f8-394fb2032b0f")
         private val BLOCK_REQUEST: UUID = UUID.fromString("26eb002e-b012-49a8-b1f8-394fb2032b0f")
         private val BLOCK: UUID = UUID.fromString("26eb002f-b012-49a8-b1f8-394fb2032b0f")
+        private val RECORD_REQUEST: UUID = UUID.fromString("26eb0023-b012-49a8-b1f8-394fb2032b0f")
+        private val RECORD: UUID = UUID.fromString("26eb0024-b012-49a8-b1f8-394fb2032b0f")
         private val CLIENT_CONFIG: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         private const val MTU = 256
         private const val CONNECT_TIMEOUT_MS = 20_000L
         private const val RESPONSE_TIMEOUT_MS = 3_000L
         private const val BLOCK_TIMEOUT_MS = 5_000L
+        private const val MAX_RECORD = 4096
         private const val BUSY_RETRY_MS = 50L
         private const val BUSY_TIMEOUT_MS = 3_000L
         private const val NO_BLOCKS = "This watch has no clock block characteristics"
+        private const val NO_RECORDS = "This watch has no record characteristics"
 
         /** Connects to an advertising watch and returns once it is ready for requests. */
         suspend fun open(context: Context, device: BluetoothDevice): GattLink {
