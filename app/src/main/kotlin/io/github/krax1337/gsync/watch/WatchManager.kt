@@ -134,7 +134,8 @@ class WatchManager(private val context: Context) : WatchActions {
         val scanner = adapter?.bluetoothLeScanner
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val name = result.scanRecord?.deviceName ?: result.device.name ?: return
+                // The name comes padded with zero bytes.
+                val name = (result.scanRecord?.deviceName ?: result.device.name ?: return).takeWhile { it in ' '..'~' }.trim()
                 if (name.startsWith("CASIO", ignoreCase = true) && result.device.address !in paired) {
                     trySend(Watch(result.device.address, name))
                 }

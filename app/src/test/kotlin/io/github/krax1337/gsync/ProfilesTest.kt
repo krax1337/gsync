@@ -113,4 +113,15 @@ class ProfilesTest {
         assertEquals(Support.UNSUPPORTED, of("CASIO GW-B5600X").support)
         assertEquals(Support.UNSUPPORTED, of("CASIO GW-BX56").support)
     }
+
+    @Test
+    fun `a name is read as the watch sends it, padded or marked`() {
+        // Zero bytes after the name are padding.
+        assertEquals(Support.EXPERIMENTAL, of("CASIO GA-B2100\u0000\u0000").support)
+        assertEquals("GBX-100", of("CASIO GBX-100\u0000").model)
+        assertEquals(Support.VERIFIED, of("CASIO GW-BX5600\u0000").support)
+        // Later runs of the squares add a # to theirs.
+        assertEquals(Support.EXPERIMENTAL, of("CASIO GMW-B5000#").support)
+        assertEquals(of("CASIO GMW-B5000").settings, of("CASIO GMW-B5000#").settings)
+    }
 }

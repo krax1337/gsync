@@ -16,6 +16,7 @@ import io.github.krax1337.gsync.protocol.u
 import io.github.krax1337.gsync.watch.WatchLink
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -103,7 +104,15 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
     }
 
     private suspend fun send(characteristic: BluetoothGattCharacteristic, bytes: ByteArray, writeType: Int) {
-        val started = gatt.writeCharacteristic(characteristic, bytes, writeType)
+        var started = gatt.writeCharacteristic(characteristic, bytes, writeType)
+        // Android lets one write at a time through to a device, whichever app it comes from: with
+        // another watch app on the phone talking to the same watch, ours has to wait its turn.
+        var waitedMs = 0L
+        while (started == BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY && waitedMs < BUSY_TIMEOUT_MS) {
+            delay(BUSY_RETRY_MS)
+            waitedMs += BUSY_RETRY_MS
+            started = gatt.writeCharacteristic(characteristic, bytes, writeType)
+        }
         if (started != BluetoothStatusCodes.SUCCESS) throw LinkLostException("Write refused by Bluetooth stack ($started)")
         val status = withTimeoutOrNull(BLOCK_TIMEOUT_MS) { writeAcks.receive() }
             ?: throw LinkLostException("Write of ${bytes.size} bytes was not acknowledged")
@@ -194,6 +203,8 @@ class GattLink private constructor() : WatchLink, AutoCloseable {
         private const val CONNECT_TIMEOUT_MS = 20_000L
         private const val RESPONSE_TIMEOUT_MS = 3_000L
         private const val BLOCK_TIMEOUT_MS = 5_000L
+        private const val BUSY_RETRY_MS = 50L
+        private const val BUSY_TIMEOUT_MS = 3_000L
         private const val NO_BLOCKS = "This watch has no clock block characteristics"
 
         /** Connects to an advertising watch and returns once it is ready for requests. */

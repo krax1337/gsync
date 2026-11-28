@@ -2,11 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.4] - 2026-11-28
 
 ### Fixed
 
+- Experimental watches were shown as "Not supported" when pairing and could not be paired. Watches pad the name they advertise with zero bytes, and the app took those for part of the name. Reported for the GBX-100, GA-B2100 and GMW-B5000.
+- The squares that advertise their name with a # at the end (GMW-B5000#, GW-B5600#, MRG-B5000#) are now recognised.
 - Switching automatic adjustment on or off no longer clears the rest of the byte it lives in, where some models keep other data. Nothing changes on the GW-BX5600. Ported from GShockAPI 2.0.0.
+- A sync no longer fails with "Write refused by Bluetooth stack (201)" when Android is still busy with another write to the watch, as it can be while a second watch app on the phone talks to it. G-Sync now waits its turn for up to three seconds. Not yet confirmed by the person who reported it.
 
 ## [0.2.3] - 2026-11-27
 

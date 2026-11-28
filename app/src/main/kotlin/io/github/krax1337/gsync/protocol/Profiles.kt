@@ -147,6 +147,8 @@ object WatchProfiles {
         // Digital squares: six clocks. Their fifth alarm is the snooze alarm (Casio's guides, not GShockAPI).
         val square = autoLight.copy(clocks = 6, lastAlarmIsSnooze = true, shortLight = "2 s", longLight = "4 s")
         family(square, "GW-B5600", "GW-B5000", "GMW-B5000", "MRG-B5000", "GCW-B5000", "TRN-50")
+        // Later runs of the same watches advertise their name with a # at the end.
+        family(square, "GW-B5600#", "GMW-B5000#", "MRG-B5000#")
         family(square.copy(settings = STANDARD.settings), "DW-B5600")
 
         // Hands and a display, two clocks: the GA-B2100 line, G-STEEL and the two Edifice models
@@ -167,9 +169,12 @@ object WatchProfiles {
         family(bare.copy(settings = STANDARD.settings - Setting.DATE_FORMAT - Setting.LANGUAGE), "ABL-100WE", "F-B100W", "BSA-B100")
     }
 
-    /** The profile of a watch, from the name it advertises (for example "CASIO GW-BX5600"). */
+    /**
+     * The profile of a watch, from the name it advertises (for example "CASIO GW-BX5600"). Watches
+     * pad that name with zero bytes, which are not part of it.
+     */
     fun of(advertisedName: String): WatchProfile {
-        val model = advertisedName.removePrefix("CASIO").trim()
+        val model = advertisedName.takeWhile { it in ' '..'~' }.removePrefix("CASIO").trim()
         val name = model.substringBefore(' ')
         return MODELS[name]
             // A watch of the confirmed model that was paired before this table existed must keep
